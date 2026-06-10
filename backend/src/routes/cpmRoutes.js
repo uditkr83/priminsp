@@ -21,6 +21,7 @@ router.post("/calculate", async (req, res) => {
     const relationships = relationshipsResult.rows;
 
     const scheduleData = {};
+    const activityMap = {};
 
     for (const activity of activities) {
 
@@ -47,11 +48,11 @@ router.post("/calculate", async (req, res) => {
 
       scheduleData[activity.id] = {
   ES,
-  EF,
-  LS: ES,
-  LF: EF,
-  Float: 0
+  EF
 };
+
+activityMap[activity.id] = activity;
+
 await pool.query(
   `
   INSERT INTO schedules
@@ -87,6 +88,49 @@ await pool.query(
 ]
 );
     }
+
+const activityIds = Object.keys(scheduleData).map(Number);
+
+const lastActivityId =
+  activityIds[activityIds.length - 1];
+
+scheduleData[lastActivityId].LF =
+  scheduleData[lastActivityId].EF;
+
+scheduleData[lastActivityId].LS =
+  scheduleData[lastActivityId].LF -
+  activityMap[lastActivityId].duration + 1;
+
+scheduleData[lastActivityId].Float =
+  scheduleData[lastActivityId].LS -
+  scheduleData[lastActivityId].ES;
+
+scheduleData[lastActivityId].Critical =
+  scheduleData[lastActivityId].Float === 0;
+
+for (
+  let i = activityIds.length - 2;
+  i >= 0;
+  i--
+) {
+
+  const currentId = activityIds[i];
+  const nextId = activityIds[i + 1];
+
+  scheduleData[currentId].LF =
+    scheduleData[nextId].LS - 1;
+
+  scheduleData[currentId].LS =
+    scheduleData[currentId].LF -
+    activityMap[currentId].duration + 1;
+
+  scheduleData[currentId].Float =
+    scheduleData[currentId].LS -
+    scheduleData[currentId].ES;
+
+scheduleData[currentId].Critical =
+  scheduleData[currentId].Float === 0;
+}
 
     res.json(scheduleData);
 
