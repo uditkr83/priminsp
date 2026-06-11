@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-
 import Sidebar from "./components/Sidebar";
 
+// Your newly styled, upgraded premium page dashboard components
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import WBS from "./pages/WBS";
@@ -13,40 +13,29 @@ import Gantt from "./pages/Gantt";
 function App() {
   return (
     <BrowserRouter>
-      <div style={{ display: "flex" }}>
+      <div style={{ display: "flex", background: "#0d1018", minHeight: "100vh" }}>
+        
+        {/* Persistent Premium Navigation Sidebar */}
         <Sidebar />
 
-        <div style={{ padding: "20px", flex: 1 }}>
+        {/* Dynamic Page Router Outlet Panel */}
+        <div style={{ 
+          flex: 1, 
+          overflowY: "auto", 
+          height: "100vh",
+          boxSizing: "border-box"
+        }}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
-
-            <Route
-              path="/projects"
-              element={<Projects />}
-            />
-            <Route
-  path="/wbs"
-  element={<WBS />}
-/>
-
-            <Route
-              path="/activities"
-              element={<Activities />}
-            />
-            <Route
-  path="/relationships"
-  element={<Relationships />}
-/>
-<Route
-  path="/schedule"
-  element={<Schedule />}
-/>
-<Route
-  path="/gantt"
-  element={<Gantt />}
-/>
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/wbs" element={<WBS />} />
+            <Route path="/activities" element={<Activities />} />
+            <Route path="/relationships" element={<Relationships />} />
+            <Route path="/schedule" element={<Schedule />} />
+            <Route path="/gantt" element={<Gantt />} />
           </Routes>
         </div>
+
       </div>
     </BrowserRouter>
   );
