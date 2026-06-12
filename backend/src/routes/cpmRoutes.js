@@ -27,22 +27,29 @@ router.post("/calculate", async (req, res) => {
 
       let ES = 1;
 
-      const predecessorLinks = relationships.filter(
-        r => r.successor_activity_id === activity.id
-      );
+const predecessorLinks = relationships.filter(
+  r => r.successor_activity_id === activity.id
+);
 
-      if (predecessorLinks.length > 0) {
+if (predecessorLinks.length > 0) {
 
-        const predecessorId =
-          predecessorLinks[0].predecessor_activity_id;
+  let maxEF = 0;
 
-        const predecessorSchedule =
-          scheduleData[predecessorId];
+  for (const link of predecessorLinks) {
 
-        if (predecessorSchedule) {
-          ES = predecessorSchedule.EF + 1;
-        }
-      }
+    const predecessorSchedule =
+      scheduleData[link.predecessor_activity_id];
+
+    if (
+      predecessorSchedule &&
+      predecessorSchedule.EF > maxEF
+    ) {
+      maxEF = predecessorSchedule.EF;
+    }
+  }
+
+  ES = maxEF + 1;
+}
 
       const EF = ES + activity.duration - 1;
 
@@ -66,26 +73,33 @@ await pool.query(
     is_critical
   )
   VALUES
-(
-  $1,
-  CURRENT_DATE + ($2 - 1),
-  CURRENT_DATE + ($3 - 1),
-  CURRENT_DATE + ($4 - 1),
-  CURRENT_DATE + ($5 - 1),
-  $6,
-  $7
-)
-  ON CONFLICT DO NOTHING
+  (
+    $1,
+    CURRENT_DATE + ($2 - 1),
+    CURRENT_DATE + ($3 - 1),
+    CURRENT_DATE + ($4 - 1),
+    CURRENT_DATE + ($5 - 1),
+    $6,
+    $7
+  )
+  ON CONFLICT (activity_id)
+  DO UPDATE SET
+    early_start = EXCLUDED.early_start,
+    early_finish = EXCLUDED.early_finish,
+    late_start = EXCLUDED.late_start,
+    late_finish = EXCLUDED.late_finish,
+    total_float = EXCLUDED.total_float,
+    is_critical = EXCLUDED.is_critical
   `,
   [
-  activity.id,
-  ES,
-  EF,
-  ES,
-  EF,
-  0,
-  true
-]
+    activity.id,
+    ES,
+    EF,
+    ES,
+    EF,
+    0,
+    true
+  ]
 );
     }
 
@@ -122,7 +136,7 @@ for (
 
   scheduleData[currentId].LS =
     scheduleData[currentId].LF -
-    activityMap[currentId].duration + 1;
+    activityMap[currentId].duration + 2;
 
   scheduleData[currentId].Float =
     scheduleData[currentId].LS -
