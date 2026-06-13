@@ -3,6 +3,7 @@ import axios from "axios";
 import {
   MdLink,
   MdHourglassEmpty,
+  MdCallSplit,
   MdLayers,
   MdArrowForward
 } from "react-icons/md";
@@ -24,7 +25,7 @@ export default function RelationshipsDashboard() {
 
   const loadRelationships = async () => {
     try {
-      const response = await axios.get("http://13.60.26.19:5000/relationships");
+      const response = await axios.get("http://13.61.24.144:5000/relationships");
       setRelationships(response.data || []);
     } catch (err) {
       console.error("Error fetching relationships:", err);
@@ -33,7 +34,7 @@ export default function RelationshipsDashboard() {
 
   const loadActivities = async () => {
     try {
-      const response = await axios.get("http://13.60.26.19:5000/activities");
+      const response = await axios.get("http://13.61.24.144:5000/activities");
       setActivities(response.data || []);
     } catch (err) {
       console.error("Error fetching activities:", err);
@@ -50,7 +51,7 @@ export default function RelationshipsDashboard() {
       return;
     }
     try {
-      await axios.post("http://13.60.26.19:5000/relationships", {
+      await axios.post("http://13.61.24.144:5000/relationships", {
         predecessor_activity_id: Number(predecessorId),
         successor_activity_id: Number(successorId),
         relationship_type: relationshipType,
@@ -68,7 +69,7 @@ export default function RelationshipsDashboard() {
     }
   };
 
-  // Step 4: Relationship Type Dynamic Styling Config Generator
+  // Relationship Type Dynamic Styling Config Generator
   const getTypeBadgeStyles = (type) => {
     switch (type) {
       case "FS": return { bg: "#2a0d1a", border: "#4a1329", text: "#D4537E" }; // Pink
@@ -90,26 +91,14 @@ export default function RelationshipsDashboard() {
         boxSizing: "border-box"
       }}
     >
-      {/* Step 1 & 2: Deleted Stats Cards & Simplified Header */}
+      {/* Header Block with Recommended Option 1 Implemented ✅ */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px" }}>
         <h1 style={{ fontSize: "24px", fontWeight: 500, color: "#f1f5f9", margin: 0 }}>
           Relationship Manager
         </h1>
-        <button
-          style={{
-            background: "#185FA5",
-            border: "none",
-            color: "white",
-            padding: "10px 18px",
-            borderRadius: "8px",
-            cursor: "pointer",
-            fontWeight: 500,
-            fontSize: "13px"
-          }}
-          onClick={() => alert("Ready to establish new network logic vectors...")}
-        >
-          + New Link
-        </button>
+        <div style={{ fontSize: "13px", color: "#64748b" }}>
+          Define network logic links
+        </div>
       </div>
 
       {/* Main Split Grid Workspace */}
@@ -194,7 +183,6 @@ export default function RelationshipsDashboard() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#0d1018" }}>
-                {/* Step 6: Streamlined Columns (ID Completely Eliminated) */}
                 {["Predecessor", "Relationship", "Successor", "Lag Offset"].map((header) => (
                   <th key={header} style={{ padding: "14px 24px", fontSize: "10px", fontWeight: 600, color: "#475569", textAlign: "left", letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     {header}
@@ -216,7 +204,7 @@ export default function RelationshipsDashboard() {
                       {rel.predecessor_code || `ACT-${rel.predecessor_activity_id}`}
                     </td>
 
-                    {/* Column 2: Step 3 & 4 Visual Line Linkage + Dynamic Color Map */}
+                    {/* Column 2: Visual Line Linkage + Dynamic Color Map & Fixed JSX Arrow String */}
                     <td style={{ padding: "16px 24px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <div style={{ height: "1px", width: "16px", background: "#1e2330" }}></div>
@@ -233,8 +221,9 @@ export default function RelationshipsDashboard() {
                         }}>
                           {rel.relationship_type}
                         </span>
+                        {/* ✅ Fixed: Wrapped raw special character string in standard JSX brackets */}
                         <div style={{ display: "flex", alignItems: "center", color: "#1e2330", marginLeft: "-4px" }}>
-                          ──────▶
+                          {"──────▶"}
                         </div>
                       </div>
                     </td>
@@ -244,7 +233,7 @@ export default function RelationshipsDashboard() {
                       {rel.successor_code || `ACT-${rel.successor_activity_id}`}
                     </td>
 
-                    {/* Column 4: Step 5 Cleaner Lag Prefix Badge */}
+                    {/* Column 4: Cleaner Lag Prefix Badge */}
                     <td style={{ padding: "16px 24px" }}>
                       <span style={{
                         background: Number(rel.lag) > 0 ? "#2a1f08" : "#1a1f2e",

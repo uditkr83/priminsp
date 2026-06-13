@@ -6,13 +6,14 @@ router.post("/", async (req, res) => {
   try {
 
     const {
-      wbs_id,
-      activity_code,
-      activity_name,
-      duration,
-      start_date,
-      finish_date
-    } = req.body;
+  wbs_id,
+  activity_code,
+  activity_name,
+  duration,
+  start_date,
+  finish_date,
+  status
+} = req.body;
 
     const result = await pool.query(
       `INSERT INTO activities

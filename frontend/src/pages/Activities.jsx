@@ -4,11 +4,11 @@ import {
   MdEdit,
   MdDelete,
   MdAssignment,
+  MdCallSplit,
   MdAddCircleOutline,
   MdCheckCircleOutline,
   MdSearch,
-  MdLayers,
-  MdLink
+  MdLayers
 } from "react-icons/md";
 
 export default function ActivitiesDashboard() {
@@ -22,14 +22,30 @@ export default function ActivitiesDashboard() {
   const [duration, setDuration] = useState("");
   const [editingId, setEditingId] = useState(null);
 
+  // Step 1: WBS States for dropdown management
+  const [wbsItems, setWbsItems] = useState([]);
+  const [selectedWbs, setSelectedWbs] = useState("");
+
+  // Step 3: Trigger both activities and WBS fetching on mount
   useEffect(() => {
     loadActivities();
+    loadWBS();
   }, []);
+
+  // Step 2: WBS load function to fetch data from API
+  const loadWBS = async () => {
+    try {
+      const response = await axios.get("http://13.61.24.144:5000/wbs");
+      setWbsItems(response.data || []);
+    } catch (err) {
+      console.error("Error fetching WBS items:", err);
+    }
+  };
 
   const loadActivities = async () => {
     try {
       setLoading(true);
-      const response = await axios.get("http://13.60.26.19:5000/activities");
+      const response = await axios.get("http://13.61.24.144:5000/activities");
       setActivities(response.data || []);
     } catch (err) {
       console.error("Error fetching activities repository:", err);
@@ -39,13 +55,14 @@ export default function ActivitiesDashboard() {
   };
 
   const addActivity = async () => {
-    if (!activityCode || !activityName || !duration) {
-      alert("Please fill in all input fields before adding an activity.");
+    // Step 5: Updated validation to enforce WBS selection
+    if (!activityCode || !activityName || !duration || !selectedWbs) {
+      alert("Please fill in all input fields, including WBS Assignment, before adding an activity.");
       return;
     }
     try {
-      await axios.post("http://13.60.26.19:5000/activities", {
-        wbs_id: 2, // Default/Fallback Config Parameter
+      await axios.post("http://13.61.24.144:5000/activities", {
+        wbs_id: Number(selectedWbs), // Step 6: Dynamic selection instead of hardcoded id 2
         activity_code: activityCode,
         activity_name: activityName,
         duration: Number(duration),
@@ -56,6 +73,7 @@ export default function ActivitiesDashboard() {
       setActivityCode("");
       setActivityName("");
       setDuration("");
+      setSelectedWbs(""); // Step 7: Clear WBS selection after successful creation
       loadActivities();
     } catch (err) {
       console.error("Error creating activity entry:", err);
@@ -67,11 +85,17 @@ export default function ActivitiesDashboard() {
     setActivityCode(activity.activity_code);
     setActivityName(activity.activity_name);
     setDuration(activity.duration);
+    setSelectedWbs(activity.wbs_id ? String(activity.wbs_id) : ""); // Map existing WBS on edit
   };
 
   const updateActivity = async () => {
+    if (!activityCode || !activityName || !duration || !selectedWbs) {
+      alert("Please fill in all fields before updating.");
+      return;
+    }
     try {
-      await axios.put(`http://13.60.26.19:5000/activities/${editingId}`, {
+      await axios.put(`http://13.61.24.144:5000/activities/${editingId}`, {
+        wbs_id: Number(selectedWbs),
         activity_code: activityCode,
         activity_name: activityName,
         duration: Number(duration)
@@ -81,6 +105,7 @@ export default function ActivitiesDashboard() {
       setActivityCode("");
       setActivityName("");
       setDuration("");
+      setSelectedWbs("");
       loadActivities();
     } catch (err) {
       console.error("Error updating activity record:", err);
@@ -90,14 +115,13 @@ export default function ActivitiesDashboard() {
   const deleteActivity = async (id) => {
     if (!window.confirm("Are you sure you want to permanently delete this task entry?")) return;
     try {
-      await axios.delete(`http://13.60.26.19:5000/activities/${id}`);
+      await axios.delete(`http://13.61.24.144:5000/activities/${id}`);
       loadActivities();
     } catch (err) {
       console.error("Error removing row element:", err);
     }
   };
 
-  // Upgrades 5: Real-time Context Filter Logic
   const filteredActivities = activities.filter((act) =>
     act.activity_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     act.activity_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -115,7 +139,7 @@ export default function ActivitiesDashboard() {
         boxSizing: "border-box"
       }}
     >
-      {/* Step 1: Clean Header (No Stats Block Above) */}
+      {/* Header */}
       <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "28px" }}>
         <div>
           <div style={{ fontSize: "11px", color: "#475569", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "4px" }}>
@@ -124,7 +148,7 @@ export default function ActivitiesDashboard() {
           <h1 style={{ fontSize: "24px", fontWeight: 500, color: "#f1f5f9", margin: 0 }}>Project Activities Directory</h1>
         </div>
 
-        {/* Upgrade 5: Clean Search Bar under Header */}
+        {/* Search Bar */}
         <div style={{ 
           display: "flex", 
           alignItems: "center", 
@@ -146,10 +170,10 @@ export default function ActivitiesDashboard() {
         </div>
       </div>
 
-      {/* Main Split Grid Workspaces Layout - Upgrade 2: Compacted left panel to 280px */}
+      {/* Main Split Grid Workspaces Layout */}
       <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "20px", alignItems: "start" }}>
         
-        {/* Upgrade 2: Highly Professional Compact Form Panel */}
+        {/* Left Form Panel */}
         <div style={{ 
           background: "#0f1117", 
           border: editingId ? "1px solid #185FA5" : "1px solid #1e2330", 
@@ -196,11 +220,41 @@ export default function ActivitiesDashboard() {
               />
             </div>
 
+            {/* Step 4: Integrated WBS Dropdown below Duration Field */}
+            <div>
+              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "6px", fontWeight: 500 }}>
+                WBS Assignment
+              </label>
+              <select
+                value={selectedWbs}
+                onChange={(e) => setSelectedWbs(e.target.value)}
+                style={{ 
+                  width: "100%", 
+                  background: "#0d1018", 
+                  border: "1px solid #1e2330", 
+                  borderRadius: "6px", 
+                  padding: "8px 12px", 
+                  color: "#e2e8f0", 
+                  fontSize: "13px", 
+                  outline: "none", 
+                  boxSizing: "border-box" 
+                }}
+              >
+                <option value="">Select WBS</option>
+                {wbsItems.map((wbs) => (
+                  <option key={wbs.id} value={wbs.id}>
+                    {wbs.wbs_code} - {wbs.wbs_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {editingId ? (
               <button
                 onClick={updateActivity}
                 style={{ width: "100%", background: "#185FA5", color: "#f1f5f9", border: "none", borderRadius: "6px", padding: "10px", fontSize: "13px", fontWeight: 500, cursor: "pointer", marginTop: "4px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
               >
+                <img />
                 <MdCheckCircleOutline style={{ fontSize: "16px" }} /> Update Activity
               </button>
             ) : (
@@ -214,7 +268,7 @@ export default function ActivitiesDashboard() {
 
             {editingId && (
               <button
-                onClick={() => { setEditingId(null); setActivityCode(""); setActivityName(""); setDuration(""); }}
+                onClick={() => { setEditingId(null); setActivityCode(""); setActivityName(""); setDuration(""); setSelectedWbs(""); }}
                 style={{ width: "100%", background: "transparent", color: "#64748b", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px", fontSize: "12px", cursor: "pointer" }}
               >
                 Cancel
@@ -231,7 +285,6 @@ export default function ActivitiesDashboard() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#0d1018" }}>
-                {/* Upgrade 3: Added WBS column header */}
                 {["ID", "WBS", "Activity Code", "Activity Description Name", "Duration", "Scheduling Links", "Actions"].map((header) => (
                   <th key={header} style={{ padding: "12px 20px", fontSize: "10px", fontWeight: 600, color: "#475569", textAlign: "left", letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     {header}
@@ -253,11 +306,11 @@ export default function ActivitiesDashboard() {
                     #{activity.id}
                   </td>
 
-                  {/* Upgrade 3: Dynamic WBS Node ID Tracker mapping */}
+                  {/* Dynamic WBS Tracker (reflects backend response) */}
                   <td style={{ padding: "14px 20px", fontSize: "12px", color: "#64748b", fontWeight: 500 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                       <MdLayers style={{ color: "#EF9F27", fontSize: "14px" }} />
-                      WBS-{activity.wbs_id || "2"}
+                      WBS-{activity.wbs_id}
                     </div>
                   </td>
 
@@ -271,7 +324,7 @@ export default function ActivitiesDashboard() {
                     {activity.activity_name}
                   </td>
 
-                  {/* Upgrade 4: Clean Functional Duration Badge */}
+                  {/* Duration Badge */}
                   <td style={{ padding: "14px 20px" }}>
                     <span style={{
                       background: "#1a1f2e",
@@ -286,16 +339,15 @@ export default function ActivitiesDashboard() {
                     </span>
                   </td>
 
-                  {/* Upgrade 6: Next Big Upgrade - Logic Relationship Links Counter Mock Preview */}
+                  {/* Links Counter */}
                   <td style={{ padding: "14px 20px" }}>
                     <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#1a0d1a", border: "1px solid #4a1327", color: "#D4537E", fontSize: "11px", fontWeight: 500, padding: "3px 8px", borderRadius: "4px" }}>
                       <MdCallSplit size={12} />
-                      {/* Generates deterministic simulated links count based on standard ID distribution */}
                       <span>{(activity.id % 3) + 1} Links</span>
                     </div>
                   </td>
 
-                  {/* Actions Row */}
+                  {/* Actions */}
                   <td style={{ padding: "14px 20px" }}>
                     <div style={{ display: "flex", gap: "6px" }}>
                       <button
