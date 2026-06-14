@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import API from "../api"; 
 import {
   MdEdit,
   MdDelete,
   MdAssignment,
-  MdCallSplit,
   MdAddCircleOutline,
   MdCheckCircleOutline,
   MdSearch,
-  MdLayers
+  MdLayers,
+  MdTrendingUp,
+  MdCheckCircle,
+  MdPlayCircleFilled,
+  MdHelpOutline
 } from "react-icons/md";
 
 export default function ActivitiesDashboard() {
@@ -16,116 +19,170 @@ export default function ActivitiesDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   
-  // Form and Editor States
+  // ⚙️ Dashboard Metrics State
+  const [stats, setStats] = useState({
+    total_activities: 0,
+    completed: 0,
+    in_progress: 0,
+    not_started: 0,
+    avg_progress: 0
+  });
+
+  // 📝 Form and Editor States
   const [activityCode, setActivityCode] = useState("");
   const [activityName, setActivityName] = useState("");
   const [duration, setDuration] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [finishDate, setFinishDate] = useState("");
+  const [percentComplete, setPercentComplete] = useState(0);
+  const [selectedWbs, setSelectedWbs] = useState("");
   const [editingId, setEditingId] = useState(null);
 
-  // Step 1: WBS States for dropdown management
+  // 📂 WBS Dropdown Management
   const [wbsItems, setWbsItems] = useState([]);
-  const [selectedWbs, setSelectedWbs] = useState("");
 
-  // Step 3: Trigger both activities and WBS fetching on mount
+  // 🚀 Initial Load Pipeline
   useEffect(() => {
-    loadActivities();
+    loadDashboardData();
     loadWBS();
   }, []);
 
-  // Step 2: WBS load function to fetch data from API
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      // 🛠️ Multi-fetch telemetry execution (Activities + Stats)
+      const [activitiesRes, statsRes] = await Promise.all([
+        API.get("/activities"),
+        API.get("/activities/stats")
+      ]);
+      setActivities(activitiesRes.data || []);
+      setStats(statsRes.data || { total_activities: 0, completed: 0, in_progress: 0, not_started: 0, avg_progress: 0 });
+    } catch (err) {
+      console.error("Error aggregating activities runtime context metrics:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadWBS = async () => {
     try {
-      const response = await axios.get("http://13.61.24.144:5000/wbs");
+      const response = await API.get("/wbs");
       setWbsItems(response.data || []);
     } catch (err) {
       console.error("Error fetching WBS items:", err);
     }
   };
 
-  const loadActivities = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get("http://13.61.24.144:5000/activities");
-      setActivities(response.data || []);
-    } catch (err) {
-      console.error("Error fetching activities repository:", err);
-    } finally {
-      setLoading(false);
-    }
+  // 📅 Primavera Date Format Engine (e.g., 20-Jun-2026)
+  const formatPrimaveraDate = (dateString) => {
+    if (!dateString) return "Not Scheduled";
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return "Not Scheduled";
+    
+    const day = String(date.getDate()).padStart(2, '0');
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${day}-${months[date.getMonth()]}-${date.getFullYear()}`;
   };
 
   const addActivity = async () => {
-    // Step 5: Updated validation to enforce WBS selection
     if (!activityCode || !activityName || !duration || !selectedWbs) {
-      alert("Please fill in all input fields, including WBS Assignment, before adding an activity.");
+      alert("Validation Constraint: Please map all core fields including WBS Assignment node.");
       return;
     }
     try {
-      await axios.post("http://13.61.24.144:5000/activities", {
-        wbs_id: Number(selectedWbs), // Step 6: Dynamic selection instead of hardcoded id 2
+      await API.post("/activities", {
+        wbs_id: Number(selectedWbs),
         activity_code: activityCode,
         activity_name: activityName,
         duration: Number(duration),
-        start_date: "2026-06-20",
-        finish_date: "2026-06-25"
+        start_date: startDate || null,
+        finish_date: finishDate || null,
+        percent_complete: Number(percentComplete)
       });
 
-      setActivityCode("");
-      setActivityName("");
-      setDuration("");
-      setSelectedWbs(""); // Step 7: Clear WBS selection after successful creation
-      loadActivities();
+      resetFormFields();
+      loadDashboardData();
     } catch (err) {
-      console.error("Error creating activity entry:", err);
+      console.error("Error creating activity instance payload execution:", err);
     }
   };
 
+  // 🛠️ UPGRADED SAFE DATE EXTRACTOR BY USER
   const editActivity = (activity) => {
     setEditingId(activity.id);
-    setActivityCode(activity.activity_code);
-    setActivityName(activity.activity_name);
-    setDuration(activity.duration);
-    setSelectedWbs(activity.wbs_id ? String(activity.wbs_id) : ""); // Map existing WBS on edit
+    setActivityCode(activity.activity_code || "");
+    setActivityName(activity.activity_name || "");
+    setDuration(activity.duration || "");
+    
+    // Safety guard using substring to cleanly parse raw database date formats or null states
+    setStartDate(activity.start_date?.substring(0, 10) || "");
+    setFinishDate(activity.finish_date?.substring(0, 10) || "");
+    
+    setPercentComplete(activity.percent_complete || 0);
+    setSelectedWbs(activity.wbs_id ? String(activity.wbs_id) : "");
   };
 
   const updateActivity = async () => {
     if (!activityCode || !activityName || !duration || !selectedWbs) {
-      alert("Please fill in all fields before updating.");
+      alert("Validation Constraint: Core parameters cannot compile with empty values.");
       return;
     }
     try {
-      await axios.put(`http://13.61.24.144:5000/activities/${editingId}`, {
+      await API.put(`/activities/${editingId}`, {
         wbs_id: Number(selectedWbs),
         activity_code: activityCode,
         activity_name: activityName,
-        duration: Number(duration)
+        duration: Number(duration),
+        start_date: startDate || null,
+        finish_date: finishDate || null,
+        percent_complete: Number(percentComplete)
       });
 
       setEditingId(null);
-      setActivityCode("");
-      setActivityName("");
-      setDuration("");
-      setSelectedWbs("");
-      loadActivities();
+      resetFormFields();
+      loadDashboardData();
     } catch (err) {
-      console.error("Error updating activity record:", err);
+      console.error("Mutation aborted on cluster update processing sequence:", err);
     }
   };
 
   const deleteActivity = async (id) => {
-    if (!window.confirm("Are you sure you want to permanently delete this task entry?")) return;
+    if (!window.confirm("Are you sure you want to permanently delete this task logic node?")) return;
     try {
-      await axios.delete(`http://13.61.24.144:5000/activities/${id}`);
-      loadActivities();
+      await API.delete(`/activities/${id}`);
+      loadDashboardData();
     } catch (err) {
-      console.error("Error removing row element:", err);
+      alert(err.response?.data?.error || "Error executing delete lifecycle state transition sequence.");
+    }
+  };
+
+  const resetFormFields = () => {
+    setActivityCode("");
+    setActivityName("");
+    setDuration("");
+    setStartDate("");
+    setFinishDate("");
+    setPercentComplete(0);
+    setSelectedWbs("");
+  };
+
+  const getStatusBadgeStyle = (status) => {
+    switch (status) {
+      case "Completed":
+        return { bg: "#042f1a", text: "#34d399", border: "#10b981" };
+      case "In Progress":
+        return { bg: "#362005", text: "#fbbf24", border: "#f59e0b" };
+      case "Not Started":
+      default:
+        return { bg: "#1e293b", text: "#94a3b8", border: "#475569" };
     }
   };
 
   const filteredActivities = activities.filter((act) =>
     act.activity_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     act.activity_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(act.wbs_id || "").includes(searchTerm)
+    act.wbs_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    act.wbs_name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -133,36 +190,29 @@ export default function ActivitiesDashboard() {
       style={{
         background: "#0d1018",
         minHeight: "100vh",
-        padding: "32px 36px",
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        padding: "24px 32px",
+        fontFamily: "Inter, -apple-system, sans-serif",
         color: "#e2e8f0",
         boxSizing: "border-box"
       }}
     >
-      {/* Header */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "28px" }}>
+      {/* Header Panel Layout */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
         <div>
-          <div style={{ fontSize: "11px", color: "#475569", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "4px" }}>
-            Operational Control
+          <div style={{ fontSize: "11px", color: "#475569", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>
+            Operational Control Management System
           </div>
-          <h1 style={{ fontSize: "24px", fontWeight: 500, color: "#f1f5f9", margin: 0 }}>Project Activities Directory</h1>
+          <h1 style={{ fontSize: "22px", fontWeight: 600, color: "#f8fafc", margin: "4px 0 0 0", letterSpacing: "-0.5px" }}>
+            Project Activities Master Matrix
+          </h1>
         </div>
 
-        {/* Search Bar */}
-        <div style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          gap: "10px", 
-          background: "#0f1117", 
-          border: "1px solid #1e2330", 
-          borderRadius: "8px", 
-          padding: "8px 16px", 
-          maxWidth: "400px" 
-        }}>
+        {/* Search Engine Wrapper */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "#0f1117", border: "1px solid #1e2330", borderRadius: "8px", padding: "8px 16px", width: "320px" }}>
           <MdSearch style={{ color: "#475569", fontSize: "18px" }} />
           <input 
             type="text" 
-            placeholder="Search activity code, description, or WBS map..." 
+            placeholder="Search code, description, or WBS..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{ background: "transparent", border: "none", outline: "none", color: "#e2e8f0", fontSize: "13px", width: "100%" }}
@@ -170,25 +220,38 @@ export default function ActivitiesDashboard() {
         </div>
       </div>
 
-      {/* Main Split Grid Workspaces Layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: "20px", alignItems: "start" }}>
+      {/* 📊 Summary Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "14px", marginBottom: "24px" }}>
+        {[
+          { title: "Total Activities", value: stats.total_activities, icon: <MdAssignment size={18} color="#3b82f6" />, bg: "#0f162a" },
+          { title: "Completed Tasks", value: stats.completed, icon: <MdCheckCircle size={18} color="#10b981" />, bg: "#061c14" },
+          { title: "In Progress Logs", value: stats.in_progress, icon: <MdPlayCircleFilled size={18} color="#f59e0b" />, bg: "#1c150c" },
+          { title: "Not Started Status", value: stats.not_started, icon: <MdHelpOutline size={18} color="#64748b" />, bg: "#171923" },
+          { title: "Average Progress Score", value: `${stats.avg_progress}%`, icon: <MdTrendingUp size={18} color="#a855f7" />, bg: "#1c122c" }
+        ].map((card, idx) => (
+          <div key={idx} style={{ background: card.bg, border: "1px solid #1e2330", borderRadius: "8px", padding: "14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontSize: "11px", color: "#64748b", fontWeight: 500, whiteSpace: "nowrap" }}>{card.title}</div>
+              <div style={{ fontSize: "20px", fontWeight: 700, color: "#f8fafc", marginTop: "4px" }}>{card.value}</div>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.02)", padding: "8px", borderRadius: "6px", display: "flex", alignItems: "center" }}>{card.icon}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Workspace Main Split Layout Grid Mapping */}
+      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: "20px", alignItems: "start" }}>
         
-        {/* Left Form Panel */}
-        <div style={{ 
-          background: "#0f1117", 
-          border: editingId ? "1px solid #185FA5" : "1px solid #1e2330", 
-          borderRadius: "10px", 
-          padding: "20px",
-          boxSizing: "border-box"
-        }}>
+        {/* Left Form Control Panel Layout */}
+        <div style={{ background: "#0f1117", border: editingId ? "1px solid #185FA5" : "1px solid #1e2330", borderRadius: "10px", padding: "20px", boxSizing: "border-box" }}>
           <div style={{ fontSize: "13px", fontWeight: 600, color: "#f1f5f9", paddingBottom: "10px", borderBottom: "1px solid #1e2330", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
             <MdAssignment style={{ fontSize: "16px", color: editingId ? "#378ADD" : "#1D9E75" }} /> 
-            Activity Editor
+            {editingId ? "Modify Activity Log Node" : "Create Activity Record Instance"}
           </div>
           
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div>
-              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "6px", fontWeight: 500 }}>Code</label>
+              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>Activity Code</label>
               <input
                 type="text"
                 placeholder="e.g., A1000"
@@ -199,48 +262,69 @@ export default function ActivitiesDashboard() {
             </div>
 
             <div>
-              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "6px", fontWeight: 500 }}>Name</label>
+              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>Activity Name Description</label>
               <input
                 type="text"
-                placeholder="Describe scope item..."
+                placeholder="Describe scope element matrix..."
                 value={activityName}
                 onChange={(e) => setActivityName(e.target.value)}
                 style={{ width: "100%", background: "#0d1018", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px 12px", color: "#e2e8f0", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
               />
             </div>
 
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>Duration (d)</label>
+                <input
+                  type="number"
+                  placeholder="Days"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  style={{ width: "100%", background: "#0d1018", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px 12px", color: "#e2e8f0", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", color: "#10b981", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>Progress (%)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  placeholder="0 - 100"
+                  value={percentComplete}
+                  onChange={(e) => setPercentComplete(e.target.value)}
+                  style={{ width: "100%", background: "#0d1018", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px 12px", color: "#10b981", fontSize: "13px", outline: "none", boxSizing: "border-box", fontWeight: 600 }}
+                />
+              </div>
+            </div>
+
             <div>
-              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "6px", fontWeight: 500 }}>Duration</label>
+              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>Planned Start Date</label>
               <input
-                type="number"
-                placeholder="Days"
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
                 style={{ width: "100%", background: "#0d1018", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px 12px", color: "#e2e8f0", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
               />
             </div>
 
-            {/* Step 4: Integrated WBS Dropdown below Duration Field */}
             <div>
-              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "6px", fontWeight: 500 }}>
-                WBS Assignment
-              </label>
+              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>Planned Finish Date</label>
+              <input
+                type="date"
+                value={finishDate}
+                onChange={(e) => setFinishDate(e.target.value)}
+                style={{ width: "100%", background: "#0d1018", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px 12px", color: "#e2e8f0", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: "block", fontSize: "11px", color: "#64748b", marginBottom: "4px", fontWeight: 600, textTransform: "uppercase" }}>WBS Hierarchical Assignment</label>
               <select
                 value={selectedWbs}
                 onChange={(e) => setSelectedWbs(e.target.value)}
-                style={{ 
-                  width: "100%", 
-                  background: "#0d1018", 
-                  border: "1px solid #1e2330", 
-                  borderRadius: "6px", 
-                  padding: "8px 12px", 
-                  color: "#e2e8f0", 
-                  fontSize: "13px", 
-                  outline: "none", 
-                  boxSizing: "border-box" 
-                }}
+                style={{ width: "100%", background: "#0d1018", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px 12px", color: "#e2e8f0", fontSize: "13px", outline: "none", boxSizing: "border-box", cursor: "pointer" }}
               >
-                <option value="">Select WBS</option>
+                <option value="">-- Associate WBS Hierarchy --</option>
                 {wbsItems.map((wbs) => (
                   <option key={wbs.id} value={wbs.id}>
                     {wbs.wbs_code} - {wbs.wbs_name}
@@ -252,130 +336,174 @@ export default function ActivitiesDashboard() {
             {editingId ? (
               <button
                 onClick={updateActivity}
-                style={{ width: "100%", background: "#185FA5", color: "#f1f5f9", border: "none", borderRadius: "6px", padding: "10px", fontSize: "13px", fontWeight: 500, cursor: "pointer", marginTop: "4px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                style={{ width: "100%", background: "#185FA5", color: "#f1f5f9", border: "none", borderRadius: "6px", padding: "10px", fontSize: "13px", fontWeight: 600, cursor: "pointer", marginTop: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
               >
-                <img />
-                <MdCheckCircleOutline style={{ fontSize: "16px" }} /> Update Activity
+                <MdCheckCircleOutline style={{ fontSize: "16px" }} /> Save Changes
               </button>
             ) : (
               <button
                 onClick={addActivity}
-                style={{ width: "100%", background: "#1D9E75", color: "#f1f5f9", border: "none", borderRadius: "6px", padding: "10px", fontSize: "13px", fontWeight: 500, cursor: "pointer", marginTop: "4px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
+                style={{ width: "100%", background: "#1D9E75", color: "#f1f5f9", border: "none", borderRadius: "6px", padding: "10px", fontSize: "13px", fontWeight: 600, cursor: "pointer", marginTop: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}
               >
-                <MdAddCircleOutline style={{ fontSize: "16px" }} /> Add Activity
+                <MdAddCircleOutline style={{ fontSize: "16px" }} /> Append Activity Node
               </button>
             )}
 
             {editingId && (
               <button
-                onClick={() => { setEditingId(null); setActivityCode(""); setActivityName(""); setDuration(""); setSelectedWbs(""); }}
+                onClick={() => { setEditingId(null); resetFormFields(); }}
                 style={{ width: "100%", background: "transparent", color: "#64748b", border: "1px solid #1e2330", borderRadius: "6px", padding: "8px", fontSize: "12px", cursor: "pointer" }}
               >
-                Cancel
+                Abort Refactor Sequence
               </button>
             )}
           </div>
         </div>
 
-        {/* Right Output Activities Table */}
+        {/* Right Output Table Content Control Flow */}
         <div style={{ background: "#0f1117", border: "1px solid #1e2330", borderRadius: "10px", overflow: "hidden" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2330", fontSize: "13px", fontWeight: 500, color: "#e2e8f0" }}>
-            Operational Task Inventory Matrix ({filteredActivities.length})
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2330", fontSize: "13px", fontWeight: 600, color: "#94a3b8" }}>
+            Operational Task System Activity Matrix Map ({filteredActivities.length})
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#0d1018" }}>
-                {["ID", "WBS", "Activity Code", "Activity Description Name", "Duration", "Scheduling Links", "Actions"].map((header) => (
-                  <th key={header} style={{ padding: "12px 20px", fontSize: "10px", fontWeight: 600, color: "#475569", textAlign: "left", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                    {header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="7" style={{ padding: "32px", textAlign: "center", fontSize: "13px", color: "#475569" }}>
-                    Loading active enterprise activity pipelines...
-                  </td>
+          
+          <div style={{ width: "100%", overflowX: "auto" }}>
+            <table style={{ width: "100%", minWidth: "1100px", borderCollapse: "collapse", tableLayout: "fixed" }}>
+              <thead>
+                <tr style={{ background: "#0d1018" }}>
+                  <th style={{ width: "60px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "left", textTransform: "uppercase" }}>ID</th>
+                  <th style={{ width: "160px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "left", textTransform: "uppercase" }}>WBS Element Map</th>
+                  <th style={{ width: "110px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "left", textTransform: "uppercase" }}>Activity Code</th>
+                  <th style={{ width: "280px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "left", textTransform: "uppercase" }}>Activity Description Scope</th>
+                  <th style={{ width: "85px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "center", textTransform: "uppercase" }}>Original</th>
+                  <th style={{ width: "95px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "center", textTransform: "uppercase" }}>Remaining</th>
+                  <th style={{ width: "150px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "left", textTransform: "uppercase" }}>Progress Matrix</th>
+                  <th style={{ width: "110px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "center", textTransform: "uppercase" }}>Status Badge</th>
+                  <th style={{ width: "140px", padding: "12px 16px", fontSize: "10px", fontWeight: 700, color: "#475569", textAlign: "center", textTransform: "uppercase" }}>Actions Control</th>
                 </tr>
-              ) : filteredActivities.map((activity, index) => (
-                <tr key={activity.id || index} style={{ borderTop: "1px solid #1e2330", background: editingId === activity.id ? "#185fa515" : "transparent" }}>
-                  {/* ID */}
-                  <td style={{ padding: "14px 20px", fontSize: "12px", color: "#475569", fontFamily: "monospace" }}>
-                    #{activity.id}
-                  </td>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan="9" style={{ padding: "40px", textAlign: "center", fontSize: "13px", color: "#475569" }}>
+                      Synchronizing active enterprise activity schedule telemetry...
+                    </td>
+                  </tr>
+                ) : filteredActivities.map((activity, index) => {
+                  const badge = getStatusBadgeStyle(activity.status);
+                  
+                  return (
+                    <tr key={activity.id || index} style={{ borderTop: "1px solid #1e2330", background: editingId === activity.id ? "#185fa515" : "transparent" }}>
+                      {/* ID */}
+                      <td style={{ padding: "14px 16px", fontSize: "11px", color: "#475569", fontFamily: "monospace" }}>
+                        #{activity.id}
+                      </td>
 
-                  {/* Dynamic WBS Tracker (reflects backend response) */}
-                  <td style={{ padding: "14px 20px", fontSize: "12px", color: "#64748b", fontWeight: 500 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                      <MdLayers style={{ color: "#EF9F27", fontSize: "14px" }} />
-                      WBS-{activity.wbs_id}
-                    </div>
-                  </td>
+                      {/* WBS Block Mapping */}
+                      <td style={{ padding: "14px 16px", overflow: "hidden" }}>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                          <MdLayers style={{ color: "#EF9F27", fontSize: "14px", marginTop: "2px", flexShrink: 0 }} />
+                          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                            <span style={{ fontSize: "12px", fontWeight: 700, color: "#cbd5e1", textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden" }}>
+                              {activity.wbs_code || `ID-${activity.wbs_id}`}
+                            </span>
+                            <span style={{ fontSize: "10px", color: "#475569", textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden", marginTop: "1px" }}>
+                              {activity.wbs_name || "Root Context Node"}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
 
-                  {/* Activity Code */}
-                  <td style={{ padding: "14px 20px", fontSize: "13px", fontWeight: 600, color: "#378ADD" }}>
-                    {activity.activity_code}
-                  </td>
+                      {/* Activity Code */}
+                      <td style={{ padding: "14px 16px", fontSize: "13px", fontWeight: 700, color: "#378ADD", textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden" }}>
+                        {activity.activity_code}
+                      </td>
 
-                  {/* Activity Name */}
-                  <td style={{ padding: "14px 20px", fontSize: "13px", fontWeight: 500, color: "#e2e8f0" }}>
-                    {activity.activity_name}
-                  </td>
+                      {/* Activity Name with Dates */}
+                      <td style={{ padding: "14px 16px", overflow: "hidden" }}>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 500, color: "#e2e8f0", textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden" }}>
+                            {activity.activity_name}
+                          </span>
+                          <span style={{ fontSize: "11px", color: "#475569", fontFamily: "monospace", marginTop: "2px" }}>
+                            {formatPrimaveraDate(activity.start_date)} → {formatPrimaveraDate(activity.finish_date)}
+                          </span>
+                        </div>
+                      </td>
 
-                  {/* Duration Badge */}
-                  <td style={{ padding: "14px 20px" }}>
-                    <span style={{
-                      background: "#1a1f2e",
-                      padding: "4px 8px",
-                      borderRadius: "6px",
-                      color: "#1D9E75",
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      border: "1px solid #114331"
-                    }}>
-                      {activity.duration}d
-                    </span>
-                  </td>
+                      {/* Duration Badge */}
+                      <td style={{ padding: "14px 16px", textAlign: "center" }}>
+                        <span style={{ background: "#0c1a16", padding: "4px 8px", borderRadius: "4px", color: "#10b981", fontSize: "12px", fontWeight: 600, border: "1px solid #064e3b" }}>
+                          {activity.duration}d
+                        </span>
+                      </td>
 
-                  {/* Links Counter */}
-                  <td style={{ padding: "14px 20px" }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#1a0d1a", border: "1px solid #4a1327", color: "#D4537E", fontSize: "11px", fontWeight: 500, padding: "3px 8px", borderRadius: "4px" }}>
-                      <MdCallSplit size={12} />
-                      <span>{(activity.id % 3) + 1} Links</span>
-                    </div>
-                  </td>
+                      {/* Remaining Duration Badge */}
+                      <td style={{ padding: "14px 16px", textAlign: "center" }}>
+                        <span style={{ background: "#1c1917", padding: "4px 8px", borderRadius: "4px", color: "#f97316", fontSize: "12px", fontWeight: 600, border: "1px solid #7c2d12" }}>
+                          {activity.remaining_duration ?? activity.duration}d
+                        </span>
+                      </td>
 
-                  {/* Actions */}
-                  <td style={{ padding: "14px 20px" }}>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <button
-                        onClick={() => editActivity(activity)}
-                        style={{ display: "flex", alignItems: "center", background: "transparent", border: "1px solid #334155", borderRadius: "4px", padding: "4px 8px", color: "#94a3b8", fontSize: "12px", cursor: "pointer" }}
-                      >
-                        <MdEdit style={{ marginRight: "4px" }} size={12} /> Edit
-                      </button>
-                      <button
-                        onClick={() => deleteActivity(activity.id)}
-                        style={{ display: "flex", alignItems: "center", background: "transparent", border: "1px solid #521622", borderRadius: "4px", padding: "4px 8px", color: "#E24B4A", fontSize: "12px", cursor: "pointer" }}
-                      >
-                        <MdDelete style={{ marginRight: "4px" }} size={12} /> Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              
-              {!loading && filteredActivities.length === 0 && (
-                <tr>
-                  <td colSpan="7" style={{ padding: "32px", textAlign: "center", fontSize: "13px", color: "#475569" }}>
-                    No matching activity context instances found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                      {/* Progress Bar Matrix */}
+                      <td style={{ padding: "14px 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <div style={{ width: "100%", background: "#1e293b", borderRadius: "20px", height: "6px", overflow: "hidden" }}>
+                            <div style={{ width: `${activity.percent_complete || 0}%`, background: "#3b82f6", height: "100%", borderRadius: "20px" }} />
+                          </div>
+                          <span style={{ fontSize: "11px", fontFamily: "monospace", color: "#38bdf8", fontWeight: 600, flexShrink: 0 }}>
+                            {Number(activity.percent_complete || 0).toFixed(0)}%
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Status Badge */}
+                      <td style={{ padding: "14px 16px", textAlign: "center" }}>
+                        <span style={{ 
+                          background: badge.bg, 
+                          color: badge.text, 
+                          border: `1px solid ${badge.border}`, 
+                          padding: "3px 8px", 
+                          borderRadius: "4px", 
+                          fontSize: "11px", 
+                          fontWeight: 600,
+                          display: "inline-block",
+                          whiteSpace: "nowrap"
+                        }}>
+                          {activity.status || "Not Started"}
+                        </span>
+                      </td>
+
+                      {/* Actions Control */}
+                      <td style={{ padding: "14px 16px", textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
+                          <button
+                            onClick={() => editActivity(activity)}
+                            style={{ display: "flex", alignItems: "center", background: "transparent", border: "1px solid #334155", borderRadius: "4px", padding: "4px 8px", color: "#94a3b8", fontSize: "12px", cursor: "pointer" }}
+                          >
+                            <MdEdit style={{ marginRight: "2px" }} size={12} /> Edit
+                          </button>
+                          <button
+                            onClick={() => deleteActivity(activity.id)}
+                            style={{ display: "flex", alignItems: "center", background: "transparent", border: "1px solid #521622", borderRadius: "4px", padding: "4px 8px", color: "#E24B4A", fontSize: "12px", cursor: "pointer" }}
+                          >
+                            <MdDelete style={{ marginRight: "2px" }} size={12} /> Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {!loading && filteredActivities.length === 0 && (
+                  <tr>
+                    <td colSpan="9" style={{ padding: "40px", textAlign: "center", fontSize: "13px", color: "#475569" }}>
+                      No matching operational scheduler records in pipeline instances.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
       </div>
