@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   MdDashboard,
@@ -11,6 +12,7 @@ import {
   MdHelpOutline,
   MdSearch,
   MdMoreVert,
+  MdMenu,
 } from "react-icons/md";
 
 const NAV_SECTIONS = [
@@ -41,23 +43,27 @@ const FOOTER_ITEMS = [
   { to: "/help", icon: MdHelpOutline, label: "Help & support" },
 ];
 
-function NavItem({ to, icon: Icon, label, badge, badgeColor, active }) {
+function NavItem({ to, icon: Icon, label, badge, badgeColor, active, collapsed }) {
   return (
     <Link
       to={to}
+      title={collapsed ? label : ""} 
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "10px",
+        gap: collapsed ? "0px" : "10px",
         padding: "8px 10px",
         borderRadius: "6px",
-        marginBottom: "1px",
+        marginBottom: "3px", 
         cursor: "pointer",
-        background: active ? "#0c2a4a" : "transparent",
+        background: active ? "rgba(55, 138, 221, 0.12)" : "transparent",
+        border: active ? "1px solid rgba(55, 138, 221, 0.25)" : "1px solid transparent",
         position: "relative",
-        transition: "background 0.15s",
-        textDecoration: "none", // Keeps HTML anchors clean
-        userSelect: "none"
+        transition: "all 0.2s ease",
+        textDecoration: "none",
+        userSelect: "none",
+        justifyContent: collapsed ? "center" : "flex-start",
+        boxSizing: "border-box"
       }}
     >
       {active && (
@@ -68,7 +74,7 @@ function NavItem({ to, icon: Icon, label, badge, badgeColor, active }) {
             top: "50%",
             transform: "translateY(-50%)",
             width: "3px",
-            height: "20px",
+            height: "18px",
             background: "#378ADD",
             borderRadius: "0 3px 3px 0",
           }}
@@ -82,17 +88,24 @@ function NavItem({ to, icon: Icon, label, badge, badgeColor, active }) {
           width: "18px",
         }}
       />
+      
       <span
         style={{
           fontSize: "13px",
           color: active ? "#e2e8f0" : "#94a3b8",
           fontWeight: active ? 500 : 400,
           flex: 1,
+          opacity: collapsed ? 0 : 1,
+          maxWidth: collapsed ? 0 : "100%",
+          overflow: "hidden",
+          whiteSpace: "nowrap",
+          transition: "opacity 0.15s ease, max-width 0.15s ease",
         }}
       >
         {label}
       </span>
-      {badge && (
+
+      {badge && !collapsed && (
         <span
           style={{
             background: badgeColor === "green" ? "#1D9E75" : "#185FA5",
@@ -113,11 +126,12 @@ function NavItem({ to, icon: Icon, label, badge, badgeColor, active }) {
 export default function Sidebar() {
   const location = useLocation();
   const activePath = location.pathname;
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <div
       style={{
-        width: "240px",
+        width: collapsed ? "64px" : "260px",
         height: "100vh",
         background: "#0f1117",
         borderRight: "1px solid #1e2330",
@@ -125,55 +139,85 @@ export default function Sidebar() {
         flexDirection: "column",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         flexShrink: 0,
+        transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+        overflow: "hidden"
       }}
     >
       {/* Brand Header */}
       <div
         style={{
-          padding: "20px 16px 16px",
-          borderBottom: "1px solid #1e2330",
           display: "flex",
           alignItems: "center",
-          gap: "10px",
+          justifyContent: collapsed ? "center" : "space-between",
+          padding: "20px 12px",
+          borderBottom: "1px solid #1e2330",
+          height: "69px",
+          boxSizing: "border-box"
         }}
       >
-        <div
+        {!collapsed && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", overflow: "hidden" }}>
+            <div
+              style={{
+                width: "32px",
+                height: "32px",
+                background: "#185FA5",
+                borderRadius: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              <MdDashboard style={{ color: "#fff", fontSize: "18px" }} />
+            </div>
+            <div style={{ whiteSpace: "nowrap" }}>
+              <div style={{ fontSize: "15px", fontWeight: 500, color: "#f1f5f9", letterSpacing: "0.01em" }}>
+                PlanMaster
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                Enterprise
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <MdMenu
+          onClick={() => setCollapsed(!collapsed)}
           style={{
-            width: "32px",
-            height: "32px",
-            background: "#185FA5",
-            borderRadius: "8px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            color: "#94a3b8",
+            fontSize: "22px",
+            cursor: "pointer",
             flexShrink: 0,
           }}
-        >
-          <MdDashboard style={{ color: "#fff", fontSize: "18px" }} />
-        </div>
-        <div>
-          <div style={{ fontSize: "15px", fontWeight: 500, color: "#f1f5f9", letterSpacing: "0.01em" }}>
-            PlanMaster
-          </div>
-          <div style={{ fontSize: "10px", color: "#64748b", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Enterprise
-          </div>
-        </div>
+        />
       </div>
 
       {/* Navigation Filter Search Bar Input */}
-      <div style={{ margin: "12px 12px 8px", position: "relative" }}>
+      <div 
+        style={{ 
+          margin: "12px", 
+          position: "relative",
+          height: "32px",
+          display: "flex",
+          justifyContent: collapsed ? "center" : "flex-start"
+        }}
+      >
         <MdSearch
+          onClick={() => collapsed && setCollapsed(false)}
+          title={collapsed ? "Search" : ""} 
           style={{
-            position: "absolute",
+            position: collapsed ? "static" : "absolute",
             left: "9px",
             top: "50%",
-            transform: "translateY(-50%)",
+            transform: collapsed ? "none" : "translateY(-50%)",
             color: "#475569",
-            fontSize: "16px",
-            pointerEvents: "none",
+            fontSize: "18px",
+            cursor: collapsed ? "pointer" : "none",
+            alignSelf: "center",
           }}
         />
+        
         <input
           type="text"
           placeholder="Search..."
@@ -187,12 +231,13 @@ export default function Sidebar() {
             color: "#94a3b8",
             outline: "none",
             boxSizing: "border-box",
+            display: collapsed ? "none" : "block",
           }}
         />
       </div>
 
       {/* Main Navigation Items Stack Container */}
-      <div style={{ flex: 1, padding: "0 8px", overflowY: "auto" }}>
+      <div style={{ flex: 1, padding: collapsed ? "0 10px" : "0 8px", overflowY: "auto", overflowX: "hidden" }}>
         {NAV_SECTIONS.map((section) => (
           <div key={section.label} style={{ marginBottom: "12px" }}>
             <span
@@ -203,16 +248,18 @@ export default function Sidebar() {
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
                 padding: "10px 8px 4px",
-                display: "block",
+                display: collapsed ? "none" : "block",
               }}
             >
               {section.label}
             </span>
+
             {section.items.map((item) => (
               <NavItem
                 key={item.to}
                 {...item}
                 active={activePath === item.to}
+                collapsed={collapsed}
               />
             ))}
           </div>
@@ -225,18 +272,20 @@ export default function Sidebar() {
             key={item.to}
             {...item}
             active={activePath === item.to}
+            collapsed={collapsed}
           />
         ))}
       </div>
 
       {/* User Session Footer Control */}
-      <div style={{ padding: "8px 8px 16px", borderTop: "1px solid #1e2330" }}>
+      <div style={{ padding: "8px", borderTop: "1px solid #1e2330" }}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "10px",
-            padding: "8px 10px",
+            justifyContent: collapsed ? "center" : "flex-start",
+            gap: collapsed ? "0px" : "10px",
+            padding: "8px 6px",
             borderRadius: "6px",
             cursor: "default",
           }}
@@ -256,13 +305,15 @@ export default function Sidebar() {
               flexShrink: 0,
             }}
           >
-            AS
+            UKV
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "12px", color: "#e2e8f0", fontWeight: 500 }}>Udit Kumar Verma</div>
-            <div style={{ fontSize: "11px", color: "#475569" }}>Operation Associate</div>
+
+          <div style={{ flex: 1, minWidth: 0, display: collapsed ? "none" : "block" }}>
+            <div style={{ fontSize: "12px", color: "#e2e8f0", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Udit Kumar Verma</div>
+            <div style={{ fontSize: "11px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Operation Associate</div>
           </div>
-          <MdMoreVert style={{ color: "#475569", fontSize: "18px", cursor: "pointer" }} />
+          
+          {!collapsed && <MdMoreVert style={{ color: "#475569", fontSize: "18px", cursor: "pointer" }} />}
         </div>
       </div>
     </div>

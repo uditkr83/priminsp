@@ -8,6 +8,8 @@ const wbsRoutes = require("./routes/wbsRoutes");
 const relationshipRoutes = require("./routes/relationshipRoutes");
 const scheduleRoutes = require("./routes/scheduleRoutes");
 const cpmRoutes = require("./routes/cpmRoutes");
+const ganttHierarchyRoutes =
+require("./routes/ganttHierarchy");
 
 const app = express();
 
@@ -19,6 +21,7 @@ app.use("/activities", activityRoutes);
 app.use("/relationships", relationshipRoutes);
 app.use("/schedules", scheduleRoutes);
 app.use("/cpm", cpmRoutes);
+app.use("/api/gantt-hierarchy",ganttHierarchyRoutes);
 app.get("/", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
