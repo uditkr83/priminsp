@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const API = axios.create({
-  baseURL: "http://13.51.166.92:5000", // Tumhara AWS IP
+  baseURL: "http://16.171.230.74:5000", // Tumhara AWS IP
   headers: {
     "Content-Type": "application/json",
   },

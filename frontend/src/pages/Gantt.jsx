@@ -40,8 +40,10 @@ const buildWBSTree = (rows) => {
   });
 
   Object.values(wbsMap).forEach((node) => {
-    // एक्टिविटीज़ को पुश करने से पहले कोड के हिसाब से सॉर्ट करें
-    node.activities.sort((a, b) => a.activity_code.localeCompare(b.activity_code));
+    node.activities.sort((a, b) => {
+      if (!a.activity_code || !b.activity_code) return 0;
+      return a.activity_code.localeCompare(b.activity_code);
+    });
 
     if (node.parent_wbs_id) {
       const parent = wbsMap[node.parent_wbs_id];
@@ -59,12 +61,48 @@ const buildWBSTree = (rows) => {
   return roots;
 };
 
+// बॉटम-अप रिकर्सिव रोलअप इंजन (सभी पैरेंट WBS की डेट्स कैलकुलेट करने के लिए)
+function calculateWbsDates(node) {
+  let minStartTs = null;
+  let maxFinishTs = null;
+
+  node.activities?.forEach((act) => {
+    if (!act.early_start || !act.early_finish) return;
+
+    const startTs = new Date(act.early_start).getTime();
+    const finishTs = new Date(act.early_finish).getTime();
+
+    if (!isNaN(startTs)) {
+      if (minStartTs === null || startTs < minStartTs) minStartTs = startTs;
+    }
+    if (!isNaN(finishTs)) {
+      if (maxFinishTs === null || finishTs > maxFinishTs) maxFinishTs = finishTs;
+    }
+  });
+
+  node.children?.forEach((child) => {
+    calculateWbsDates(child);
+
+    if (child.summaryStart !== null) {
+      if (minStartTs === null || child.summaryStart < minStartTs) {
+        minStartTs = child.summaryStart;
+      }
+    }
+    if (child.summaryFinish !== null) {
+      if (maxFinishTs === null || child.summaryFinish > maxFinishTs) {
+        maxFinishTs = child.summaryFinish;
+      }
+    }
+  });
+
+  node.summaryStart = minStartTs;
+  node.summaryFinish = maxFinishTs;
+}
+
 export default function GanttDashboard() {
-  const [scheduleData, setScheduleData] = useState([]);
   const [hierarchyData, setHierarchyData] = useState([]);
+  const [scheduleData, setScheduleData] = useState([]);
   const [zoomLevel, setZoomLevel] = useState("day"); 
-  
-  // WBS Expand / Collapse स्टेट मैनेजमेंट
   const [expanded, setExpanded] = useState({}); 
   
   const containerRef = useRef(null);
@@ -86,17 +124,14 @@ export default function GanttDashboard() {
     }
   };
 
-  // ट्री डेटा मेमोइज़ेशन
   const treeData = useMemo(() => {
-    return buildWBSTree(hierarchyData);
+    const tree = buildWBSTree(hierarchyData);
+    tree.forEach(calculateWbsDates);
+    return tree;
   }, [hierarchyData]);
 
-  // प्राइमावेरा क्लीन फिक्स्ड WBS रो स्टाइल
-  const getWBSBandStyle = () => {
-    return "rgba(30, 41, 59, 0.45)"; 
-  };
+  const getWBSBandStyle = () => "rgba(30, 41, 59, 0.35)"; 
 
-  // रिकर्सिव फ्लैटनर जो सिर्फ एक्सपेंडेड नोड्स का डेटा ही रेंडर लिस्ट में डालेगा
   const flattenTree = useCallback((nodes, level = 0, isVisible = true) => {
     let rows = [];
 
@@ -105,33 +140,14 @@ export default function GanttDashboard() {
       const isNodeExpanded = expanded[wbsKey] !== false; 
 
       if (isVisible) {
-        let wbsStart = null;
-        let wbsFinish = null;
-
-        const collectDates = (n) => {
-          n.activities.forEach(a => {
-            if (a.early_start) {
-              const sTs = new Date(a.early_start).getTime();
-              if (!wbsStart || sTs < wbsStart) wbsStart = sTs;
-            }
-            if (a.early_finish) {
-              const fTs = new Date(a.early_finish).getTime();
-              if (!wbsFinish || fTs > wbsFinish) wbsFinish = fTs;
-            }
-          });
-          n.children.forEach(collectDates);
-        };
-        collectDates(node);
-
-        // WBS रो पुश करें
         rows.push({
           type: "wbs",
           level,
           id: wbsKey,
           wbs_code: node.wbs_code,
           wbs_name: node.wbs_name,
-          wbs_start: wbsStart ? new Date(wbsStart) : null,
-          wbs_finish: wbsFinish ? new Date(wbsFinish) : null,
+          wbs_start: node.summaryStart,  
+          wbs_finish: node.summaryFinish, 
           isExpanded: isNodeExpanded
         });
 
@@ -154,10 +170,7 @@ export default function GanttDashboard() {
     return rows;
   }, [expanded]);
 
-  // डिस्प्ले होने वाली फाइनल कस्टमाइज्ड रोज़
-  const displayRows = useMemo(() => {
-    return flattenTree(treeData);
-  }, [treeData, flattenTree]);
+  const displayRows = useMemo(() => flattenTree(treeData), [treeData, flattenTree]);
 
   const toggleWBS = (wbsId) => {
     setExpanded(prev => ({
@@ -193,16 +206,22 @@ export default function GanttDashboard() {
   const DAY_WIDTH = useMemo(() => {
     if (zoomLevel === "month") return 8;   
     if (zoomLevel === "week") return 16;   
-    return 32;                             
+    return 32;                               
   }, [zoomLevel]);
 
   const projectBounds = useMemo(() => {
-    if (scheduleData.length === 0) return { start: null, totalDays: 60, timelineDays: [] };
-    const allStarts = scheduleData.map(x => new Date(x.early_start).getTime());
-    const allFinishes = scheduleData.map(x => new Date(x.early_finish).getTime());
+    let datesToParse = [];
     
-    const minStart = new Date(Math.min(...allStarts));
-    const maxFinish = new Date(Math.max(...allFinishes));
+    if (scheduleData.length > 0) {
+      datesToParse = scheduleData.flatMap(x => [new Date(x.early_start).getTime(), new Date(x.early_finish).getTime()]);
+    } else if (hierarchyData.length > 0) {
+      datesToParse = hierarchyData.flatMap(x => [new Date(x.early_start).getTime(), new Date(x.early_finish).getTime()]);
+    }
+
+    const validTimestamps = datesToParse.filter(t => !isNaN(t) && t > 0);
+    
+    const minStart = validTimestamps.length ? new Date(Math.min(...validTimestamps)) : new Date();
+    const maxFinish = validTimestamps.length ? new Date(Math.max(...validTimestamps)) : new Date();
     
     const start = new Date(minStart);
     start.setDate(start.getDate() - 7); 
@@ -217,7 +236,7 @@ export default function GanttDashboard() {
       timelineDays.push(nextDay);
     }
     return { start, totalDays, timelineDays };
-  }, [scheduleData]);
+  }, [scheduleData, hierarchyData]);
 
   const { start: projectStart, totalDays: totalProjectDays, timelineDays } = projectBounds;
 
@@ -232,30 +251,47 @@ export default function GanttDashboard() {
     };
   }, [projectStart, totalProjectDays, DAY_WIDTH]);
 
-  const getBarColor = useCallback((row) => {
+  const getBarStyles = useCallback((row) => {
     const percent = row.percent_complete || 0;
-    if (percent >= 100) return "#1D9E75"; 
-    if (row.is_critical) return "#E24B4A"; 
-    return "#378ADD"; 
+    if (percent >= 100) {
+      return {
+        background: "#1D9E75",
+        border: "1px solid #34d399",
+        boxShadow: "0 0 4px rgba(29,158,117,.35)"
+      };
+    }
+    if (row.is_critical) {
+      return {
+        background: "#E24B4A",
+        border: "1px solid #f87171",
+        boxShadow: "0 0 4px rgba(226,75,74,.35)"
+      };
+    }
+    return {
+      background: "#5b9df9",
+      border: "1px solid #8fc1ff",
+      boxShadow: "0 0 4px rgba(91,157,249,.35)"
+    };
   }, []);
 
-  // ✅ री-डिफाइन्ड रिलेशन कलर्स हेल्पर (जो मिसिंग था)
   const getRelationColor = useCallback((type, isCriticalChain) => {
     if (isCriticalChain) return "#E24B4A"; 
     if (type === "SS") return "#1D9E75";   
     if (type === "FF") return "#ef9f27";   
     if (type === "SF") return "#a855f7";   
-    return "#378ADD";                      
+    return "#4A90E2";                      
   }, []);
+
+  const projectStartTs = projectStart ? projectStart.getTime() : null;
 
   return (
     <div style={{ background: "#090b11", width: "100%", height: "100vh", display: "flex", flexDirection: "column", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: "#e2e8f0", boxSizing: "border-box", overflow: "hidden" }}>
       
-      {/* HEADER MATRIX CONTROLS */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", background: "#0f121d", borderBottom: "1px solid #1e2330", flexShrink: 0 }}>
+      {/* 1. FIXED: HIGH-LEVEL CLEAN HEADER PANEL (No Squashing / Clean Spacing) */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", background: "#0f121d", borderBottom: "1px solid #1e2330", flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: "8px", color: "#475569", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>Advanced Planning & Control</div>
-          <h1 style={{ fontSize: "13px", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>Primavera P6 Logic Network Engine</h1>
+          <div style={{ fontSize: "9px", color: "#475569", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 700, marginBottom: "4px" }}>Advanced Planning & Control</div>
+          <h1 style={{ fontSize: "32px", fontWeight: 600, color: "#f1f5f9", margin: 0, letterSpacing: "-0.02em", lineHeight: "1.2" }}>Primavera P6 Logic Network Engine</h1>
         </div>
         
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -268,22 +304,23 @@ export default function GanttDashboard() {
         </div>
       </div>
 
-      {/* MAIN SPREADSHEET FRAMEWORK */}
+      {/* SPREADSHEET FRAMEWORK */}
       <div style={{ background: "#0f121d", flexGrow: 1, overflow: "hidden", display: "flex", width: "100%" }}>
         
-        {/* LEFT PANEL: GRID */}
-        <div style={{ width: "370px", flexShrink: 0, borderRight: "2px solid #1c202e", background: "#0f121d", zIndex: 15, overflowX: "hidden" }}>
+        {/* 4. FIXED: EXTENDED LEFT PANEL (NAME column wide breathing space) */}
+        <div style={{ width: "520px", flexShrink: 0, borderRight: "2px solid #1c202e", background: "#0f121d", zIndex: 15, overflowX: "hidden" }}>
           <div style={{ display: "flex", background: "#090b11", borderBottom: "1px solid #1e2330", height: "24px", width: "100%", alignItems: "center", fontWeight: 700, fontSize: "9px", color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            <div style={{ width: "95px", paddingLeft: "10px" }}>WBS / Act ID</div>
-            <div style={{ width: "165px" }}>Name</div>
-            <div style={{ width: "30px", textAlign: "center" }}>Dur</div>
-            <div style={{ width: "40px", textAlign: "center" }}>Start</div>
-            <div style={{ width: "40px", textAlign: "center" }}>Fin</div>
+            <div style={{ width: "110px", paddingLeft: "10px" }}>WBS / ACT ID</div>
+            <div style={{ width: "280px" }}>NAME</div> 
+            <div style={{ width: "35px", textAlign: "center" }}>DUR</div>
+            <div style={{ width: "45px", textAlign: "center" }}>START</div>
+            <div style={{ width: "50px", textAlign: "center" }}>FINISH</div>
           </div>
 
           <div style={{ overflowY: "hidden" }}>
             {displayRows.map((row, idx) => {
               const isWBS = row.type === "wbs";
+
               return (
                 <div 
                   key={row.id || idx} 
@@ -297,8 +334,8 @@ export default function GanttDashboard() {
                   }}
                 >
                   {isWBS ? (
-                    <div style={{ display: "flex", width: "100%", alignItems: "center", paddingLeft: `${row.level * 10 + 4}px`, fontSize: "10px" }}>
-                      <div onClick={() => toggleWBS(row.id)} style={{ cursor: "pointer", display: "flex", alignItems: "center", marginRight: "2px" }}>
+                    <div style={{ display: "flex", width: "100%", alignItems: "center", paddingLeft: `${row.level * 12 + 4}px`, fontSize: "10px" }}>
+                      <div onClick={() => toggleWBS(row.id)} style={{ cursor: "pointer", display: "flex", alignItems: "center", marginRight: "4px" }}>
                         {row.isExpanded ? (
                           <MdKeyboardArrowDown style={{ color: "#94a3b8", fontSize: "13px" }} />
                         ) : (
@@ -310,19 +347,19 @@ export default function GanttDashboard() {
                     </div>
                   ) : (
                     <>
-                      <div style={{ width: "95px", paddingLeft: `${row.level * 10 + 12}px`, fontSize: "10px", fontWeight: 700, color: row.is_critical && (row.percent_complete || 0) < 100 ? "#E24B4A" : "#cbd5e1", fontFamily: "monospace" }}>
+                      <div style={{ width: "110px", paddingLeft: `${row.level * 12 + 8}px`, fontSize: "10px", fontWeight: 700, color: row.is_critical && (row.percent_complete || 0) < 100 ? "#E24B4A" : "#cbd5e1", fontFamily: "monospace" }}>
                         {row.activity_code}
                       </div>
-                      <div style={{ width: "165px", fontSize: "10px", color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: "5px" }}>
+                      <div style={{ width: "280px", fontSize: "10px", color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: "8px" }}>
                         {row.activity_name}
                       </div>
-                      <div style={{ width: "30px", textAlign: "center", fontSize: "10px", color: "#e2e8f0", fontWeight: 600 }}>
+                      <div style={{ width: "35px", textAlign: "center", fontSize: "10px", color: "#e2e8f0", fontWeight: 600 }}>
                         {row.duration}d
                       </div>
-                      <div style={{ width: "40px", textAlign: "center", fontSize: "9px", color: "#64748b", fontFamily: "monospace" }}>
+                      <div style={{ width: "45px", textAlign: "center", fontSize: "9px", color: "#cbd5e1", fontFamily: "monospace" }}>
                         {row.early_start ? new Date(row.early_start).toLocaleDateString("en-GB", {day: '2-digit', month: '2-digit'}) : "-"}
                       </div>
-                      <div style={{ width: "40px", textAlign: "center", fontSize: "9px", color: "#64748b", fontFamily: "monospace" }}>
+                      <div style={{ width: "50px", textAlign: "center", fontSize: "9px", color: "#cbd5e1", fontFamily: "monospace" }}>
                         {row.early_finish ? new Date(row.early_finish).toLocaleDateString("en-GB", {day: '2-digit', month: '2-digit'}) : "-"}
                       </div>
                     </>
@@ -336,7 +373,7 @@ export default function GanttDashboard() {
         {/* RIGHT PANEL: TIMELINE GRAPH */}
         <div ref={containerRef} onScroll={handleScroll} style={{ flexGrow: 1, overflowX: "auto", overflowY: "auto", position: "relative", background: "#0b0d16" }}>
           
-          {/* Timeline Date Header Blocks */}
+          {/* Header Blocks */}
           <div style={{ display: "flex", background: "#090b11", borderBottom: "1px solid #1e2330", height: "24px", width: `${totalProjectDays * DAY_WIDTH}px`, position: "sticky", top: 0, zIndex: 30 }}>
             {timelineDays.map((day, index) => {
               const isWeekend = day.getDay() === 0 || day.getDay() === 6;
@@ -350,49 +387,65 @@ export default function GanttDashboard() {
             })}
           </div>
 
-          {/* Logic Chart Workspace - FIXED HEIGHT SYNTAX */}
+          {/* Logic Chart Workspace */}
           <div style={{ width: `${totalProjectDays * DAY_WIDTH}px`, position: "relative", height: `${displayRows.length * 24}px` }}>
             
             {todayMetrics.show && (
               <div style={{ position: "absolute", left: `${todayMetrics.offset}px`, top: 0, bottom: 0, width: "1px", background: "#facc15", zIndex: 12, pointerEvents: "none" }} />
             )}
 
-            {/* SVG RELATIONSHIP PATH LINES */}
+            {/* SVG LINKS ENGINE */}
             <svg style={{ position: "absolute", top: 0, left: 0, width: `${totalProjectDays * DAY_WIDTH}px`, height: `${displayRows.length * 24}px`, pointerEvents: "none", zIndex: 25 }}>
               <defs>
-                <marker id="arr-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#378ADD"/></marker>
-                <marker id="arr-critical" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#E24B4A"/></marker>
+                <marker id="arr-standard" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4A90E2"/></marker>
+                <marker id="arr-critical" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#E24B4A"/></marker>
+                <marker id="arr-ss" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1D9E75"/></marker>
               </defs>
               
               {displayRows.flatMap((row, currentIdx) => {
-                if (row.type === "wbs" || !row.dependencies || !projectStart) return [];
+                if (row.type === "wbs" || !row.dependencies || !projectStart || !row.early_start) return [];
                 
                 return row.dependencies.map((dep, dIdx) => {
                   const targetIdx = displayRows.findIndex(x => x.type === "activity" && x.activity_code === dep.target_code);
-                  if (targetIdx === -1) return null;
+                  if (targetIdx === -1 || !displayRows[targetIdx].early_start) return null;
 
                   const depType = dep.relationship_type || dep.type || "FS";
                   const durationCurrent = Number(row.duration || 1);
-                  const currentOffset = (new Date(row.early_start) - projectStart) / (1000 * 60 * 60 * 24);
-                  const targetOffset = (new Date(displayRows[targetIdx].early_start) - projectStart) / (1000 * 60 * 60 * 24);
-
-                  const currentXStart = currentOffset * DAY_WIDTH;
+                  
+                  const currentStartOffset = (new Date(row.early_start) - projectStart) / (1000 * 60 * 60 * 24);
+                  const targetStartOffset = (new Date(displayRows[targetIdx].early_start) - projectStart) / (1000 * 60 * 60 * 24);
+                  
+                  const currentXStart = currentStartOffset * DAY_WIDTH;
                   const currentXEnd = currentXStart + (durationCurrent * DAY_WIDTH);
-                  const targetXStart = targetOffset * DAY_WIDTH;
+                  const targetXStart = targetStartOffset * DAY_WIDTH;
 
                   const currentY = (currentIdx * 24) + 12; 
                   const targetY = (targetIdx * 24) + 12;
 
                   const isCriticalChain = row.is_critical && displayRows[targetIdx].is_critical;
-                  const color = getRelationColor(depType, isCriticalChain);
-                  const midX = currentXEnd + (targetXStart - currentXEnd) / 2;
+                  const strokeColor = getRelationColor(depType, isCriticalChain);
+                  const markerId = isCriticalChain ? "url(#arr-critical)" : depType === "SS" ? "url(#arr-ss)" : "url(#arr-standard)";
+
+                  let pathD = "";
+                  if (depType === "SS") {
+                    const linkX = Math.min(currentXStart, targetXStart) - 8;
+                    pathD = `M ${currentXStart} ${currentY} L ${linkX} ${currentY} L ${linkX} ${targetY} L ${targetXStart} ${targetY}`;
+                  } else if (depType === "FF") {
+                    const currentXEndReal = currentXStart + (durationCurrent * DAY_WIDTH);
+                    const targetXEndReal = targetStartOffset * DAY_WIDTH + (Number(displayRows[targetIdx].duration || 1) * DAY_WIDTH);
+                    const linkX = Math.max(currentXEndReal, targetXEndReal) + 8;
+                    pathD = `M ${currentXEndReal} ${currentY} L ${linkX} ${currentY} L ${linkX} ${targetY} L ${targetXEndReal} ${targetY}`;
+                  } else {
+                    const midX = currentXEnd + (targetXStart - currentXEnd) / 2;
+                    pathD = `M ${currentXEnd} ${currentY} L ${midX} ${currentY} L ${midX} ${targetY} L ${targetXStart} ${targetY}`;
+                  }
 
                   return (
                     <g key={`dep-${row.id}-${targetIdx}-${dIdx}`}>
                       <path 
-                        d={`M ${currentXEnd} ${currentY} L ${midX} ${currentY} L ${midX} ${targetY} L ${targetXStart} ${targetY}`} 
-                        fill="none" stroke={color} strokeWidth={1.5} strokeOpacity={0.8} 
-                        markerEnd={isCriticalChain ? "url(#arr-critical)" : "url(#arr-blue)"} 
+                        d={pathD} 
+                        fill="none" stroke={strokeColor} strokeWidth={1.2} strokeOpacity={0.85} 
+                        markerEnd={markerId} 
                       />
                     </g>
                   );
@@ -407,13 +460,14 @@ export default function GanttDashboard() {
               if (isWBS) {
                 let summaryBarLeft = 0;
                 let summaryBarWidth = 0;
-                const hasDates = row.wbs_start && row.wbs_finish && projectStart;
+                const hasDates = row.wbs_start !== null && row.wbs_finish !== null && projectStartTs !== null;
 
                 if (hasDates) {
-                  const startOffset = (row.wbs_start - projectStart) / (1000 * 60 * 60 * 24);
-                  const endOffset = (row.wbs_finish - projectStart) / (1000 * 60 * 60 * 24);
+                  const startOffset = (row.wbs_start - projectStartTs) / (1000 * 60 * 60 * 24);
+                  const endOffset = (row.wbs_finish - projectStartTs) / (1000 * 60 * 60 * 24);
+                  
                   summaryBarLeft = startOffset * DAY_WIDTH;
-                  summaryBarWidth = Math.max(4, (endOffset - startOffset) * DAY_WIDTH);
+                  summaryBarWidth = (endOffset - startOffset + 1) * DAY_WIDTH;
                 }
 
                 return (
@@ -424,25 +478,84 @@ export default function GanttDashboard() {
                       ))}
                     </div>
 
+                    {/* 2 & 3. FIXED: ULTRA-ACCURATE PRIMAVERA ROLLUP BAR ENGINE (◀══════════▶ LOOK WITH CSS SHAPES) */}
                     {hasDates && (
                       <div 
                         style={{
                           position: "absolute",
                           left: `${summaryBarLeft}px`,
                           width: `${summaryBarWidth}px`,
-                          height: "6px",
-                          background: "#000000",
-                          border: "1px solid #475569",
-                          borderRadius: "1px",
-                          zIndex: 11
+                          height: "5px",
+                          background: "#cbd5e1", 
+                          top: "9px",
+                          zIndex: 20
                         }}
-                      />
+                      >
+                        {/* ◀ लेफ्ट सॉलिड प्राइमावेरा ब्रैकेट एरो */}
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: "0px",
+                            top: "0px",
+                            width: 0,
+                            height: 0,
+                            borderTop: "5px solid #cbd5e1",
+                            borderRight: "5px solid transparent"
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            left: "0px",
+                            top: "5px",
+                            width: 0,
+                            height: 0,
+                            borderBottom: "5px solid transparent",
+                            borderRight: "5px solid #cbd5e1"
+                          }}
+                        />
+
+                        {/* ▶ राइट सॉलिड प्राइमावेरा ब्रैकेट एरो */}
+                        <div
+                          style={{
+                            position: "absolute",
+                            right: "0px",
+                            top: "0px",
+                            width: 0,
+                            height: 0,
+                            borderTop: "5px solid #cbd5e1",
+                            borderLeft: "5px solid transparent"
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            right: "0px",
+                            top: "5px",
+                            width: 0,
+                            height: 0,
+                            borderBottom: "5px solid transparent",
+                            borderLeft: "5px solid #cbd5e1"
+                          }}
+                        />
+                      </div>
                     )}
                   </div>
                 );
               }
 
-              if (!projectStart) return null;
+              // एक्टिविटी बार रेंडरिंग
+              if (!projectStart || !row.early_start) {
+                return (
+                  <div key={`act-track-${row.id || idx}`} style={{ height: "24px", display: "flex", alignItems: "center", borderBottom: "1px solid #1e2330", position: "relative" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, pointerEvents: "none", display: "flex" }}>
+                      {timelineDays.map((_, i) => (
+                        <div key={i} style={{ width: `${DAY_WIDTH}px`, height: "100%", borderRight: "1px solid rgba(255, 255, 255, 0.04)" }} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
               
               const start = new Date(row.early_start);
               const bStart = new Date(row.baseline_start || row.early_start);
@@ -460,7 +573,7 @@ export default function GanttDashboard() {
               const bBarLeftMargin = bOffset * DAY_WIDTH;
 
               const progressPercent = row.percent_complete || 0; 
-              const barColor = getBarColor(row);
+              const barStyleMeta = getBarStyles(row);
 
               return (
                 <div key={`act-track-${row.id || idx}`} style={{ height: "24px", display: "flex", alignItems: "center", borderBottom: "1px solid #1e2330", position: "relative" }}>
@@ -471,9 +584,24 @@ export default function GanttDashboard() {
                   </div>
 
                   <div style={{ position: "absolute", left: 0, right: 0, height: "100%", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <div style={{ marginLeft: `${bBarLeftMargin}px`, width: `${bBarWidth}px`, height: "2px", background: "#475569", borderRadius: "1px", opacity: 0.4, marginBottom: "1px", zIndex: 11 }} />
-                    <div style={{ marginLeft: `${barLeftMargin}px`, width: `${barWidth}px`, height: "11px", borderRadius: "1px", background: "#131722", border: `1px solid ${row.is_critical && progressPercent < 100 ? "rgba(226, 75, 74, 0.4)" : "rgba(255,255,255,0.04)"}`, cursor: "pointer", display: "flex", alignItems: "center", position: "relative", overflow: "hidden", zIndex: 11 }}>
-                      <div style={{ width: `${progressPercent}%`, height: "100%", background: `linear-gradient(90deg, ${barColor}, rgba(0,0,0,0.2))`, position: "absolute", left: 0, top: 0, zIndex: 1 }} />
+                    <div style={{ marginLeft: `${bBarLeftMargin}px`, width: `${bBarWidth}px`, height: "2px", background: "#475569", borderRadius: "1px", opacity: 0.3, marginBottom: "1px", zIndex: 11 }} />
+                    
+                    <div 
+                      style={{
+                        marginLeft: `${barLeftMargin}px`,
+                        width: `${barWidth}px`,
+                        height: "12px",
+                        borderRadius: "2px",
+                        background: barStyleMeta.background,
+                        border: barStyleMeta.border,
+                        boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.25), ${barStyleMeta.boxShadow}`,
+                        cursor: "pointer",
+                        position: "relative",
+                        overflow: "hidden",
+                        zIndex: 11
+                      }}
+                    >
+                      <div style={{ width: `${progressPercent}%`, height: "100%", background: "rgba(0, 0, 0, 0.15)", position: "absolute", left: 0, top: 0, zIndex: 1 }} />
                     </div>
                   </div>
                 </div>
