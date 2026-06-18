@@ -13,7 +13,8 @@ import {
   MdSearch,
   MdMoreVert,
   MdMenu,
-} from "react-icons/md";
+  MdPeople,
+} from "react-icons/md"; 
 
 const NAV_SECTIONS = [
   {
@@ -34,6 +35,15 @@ const NAV_SECTIONS = [
     items: [
       { to: "/schedule", icon: MdCalendarMonth, label: "Schedule" },
       { to: "/gantt", icon: MdBarChart, label: "Gantt" },
+      // 📅 Added: Enterprise Calendar Link linked directly to App.jsx router setup
+      { to: "/calendars", icon: MdCalendarMonth, label: "Calendars" },
+    ],
+  },
+  // --- ADDED PRIMAVERA RESOURCE ENTERPRISE SECTION ---
+  {
+    label: "Enterprise",
+    items: [
+      { to: "/resources", icon: MdPeople, label: "Resources", badge: "Live", badgeColor: "blue" },
     ],
   },
 ];

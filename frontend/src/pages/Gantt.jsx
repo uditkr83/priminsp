@@ -130,7 +130,8 @@ export default function GanttDashboard() {
     return tree;
   }, [hierarchyData]);
 
-  const getWBSBandStyle = () => "rgba(30, 41, 59, 0.35)"; 
+  // WBS Band Contrast Dark Style (#131b2d)
+  const getWBSBandStyle = () => "#131b2d"; 
 
   const flattenTree = useCallback((nodes, level = 0, isVisible = true) => {
     let rows = [];
@@ -251,6 +252,7 @@ export default function GanttDashboard() {
     };
   }, [projectStart, totalProjectDays, DAY_WIDTH]);
 
+  // Primavera Cloud-Style Activity Bar
   const getBarStyles = useCallback((row) => {
     const percent = row.percent_complete || 0;
     if (percent >= 100) {
@@ -268,8 +270,8 @@ export default function GanttDashboard() {
       };
     }
     return {
-      background: "#5b9df9",
-      border: "1px solid #8fc1ff",
+      background: "#60a5fa",
+      border: "1px solid #93c5fd",
       boxShadow: "0 0 4px rgba(91,157,249,.35)"
     };
   }, []);
@@ -287,11 +289,11 @@ export default function GanttDashboard() {
   return (
     <div style={{ background: "#090b11", width: "100%", height: "100vh", display: "flex", flexDirection: "column", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: "#e2e8f0", boxSizing: "border-box", overflow: "hidden" }}>
       
-      {/* 1. FIXED: HIGH-LEVEL CLEAN HEADER PANEL (No Squashing / Clean Spacing) */}
+      {/* HIGH-LEVEL CLEAN EXPANDED HEADER PANEL */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", background: "#0f121d", borderBottom: "1px solid #1e2330", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: "9px", color: "#475569", letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 700, marginBottom: "4px" }}>Advanced Planning & Control</div>
-          <h1 style={{ fontSize: "32px", fontWeight: 600, color: "#f1f5f9", margin: 0, letterSpacing: "-0.02em", lineHeight: "1.2" }}>Primavera P6 Logic Network Engine</h1>
+          <h1 style={{ fontSize: "32px", fontWeight: 600, color: "#f1f5f9", margin: 0, letterSpacing: "-0.02em", lineHeight: "1.1" }}>Primavera P6 Logic Network Engine</h1>
         </div>
         
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -307,7 +309,7 @@ export default function GanttDashboard() {
       {/* SPREADSHEET FRAMEWORK */}
       <div style={{ background: "#0f121d", flexGrow: 1, overflow: "hidden", display: "flex", width: "100%" }}>
         
-        {/* 4. FIXED: EXTENDED LEFT PANEL (NAME column wide breathing space) */}
+        {/* EXTENDED LEFT PANEL */}
         <div style={{ width: "520px", flexShrink: 0, borderRight: "2px solid #1c202e", background: "#0f121d", zIndex: 15, overflowX: "hidden" }}>
           <div style={{ display: "flex", background: "#090b11", borderBottom: "1px solid #1e2330", height: "24px", width: "100%", alignItems: "center", fontWeight: 700, fontSize: "9px", color: "#475569", textTransform: "uppercase", letterSpacing: "0.06em" }}>
             <div style={{ width: "110px", paddingLeft: "10px" }}>WBS / ACT ID</div>
@@ -478,64 +480,52 @@ export default function GanttDashboard() {
                       ))}
                     </div>
 
-                    {/* 2 & 3. FIXED: ULTRA-ACCURATE PRIMAVERA ROLLUP BAR ENGINE (◀══════════▶ LOOK WITH CSS SHAPES) */}
-                    {hasDates && (
+                    {/* ✅ FIXED: INTERNAL-BOUNDING SOFTER SOILD PRIMAVERA SUMMARY BAR */}
+                    {hasDates && summaryBarWidth > 0 && (
                       <div 
                         style={{
                           position: "absolute",
                           left: `${summaryBarLeft}px`,
                           width: `${summaryBarWidth}px`,
-                          height: "5px",
-                          background: "#cbd5e1", 
-                          top: "9px",
+                          height: "8px",             // Sharp 8px thickness
+                          top: "8px",                // Centered perfectly inside 24px track
+                          display: "flex",           // Flexbox Container inside bounds
+                          justifyContent: "space-between",
+                          alignItems: "stretch",
                           zIndex: 20
                         }}
                       >
-                        {/* ◀ लेफ्ट सॉलिड प्राइमावेरा ब्रैकेट एरो */}
+                        {/* Left Inward Chevron (Kept strictly inside width bounds) */}
                         <div
                           style={{
-                            position: "absolute",
-                            left: "0px",
-                            top: "0px",
                             width: 0,
                             height: 0,
-                            borderTop: "5px solid #cbd5e1",
-                            borderRight: "5px solid transparent"
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: "0px",
-                            top: "5px",
-                            width: 0,
-                            height: 0,
-                            borderBottom: "5px solid transparent",
-                            borderRight: "5px solid #cbd5e1"
+                            borderTop: "4px solid transparent",   
+                            borderBottom: "4px solid transparent",
+                            borderLeft: "10px solid #c7ced8", // Softer Primavera Gray
+                            transform: "scaleX(-1)",           // Flip horizontally inward
+                            flexShrink: 0
                           }}
                         />
 
-                        {/* ▶ राइट सॉलिड प्राइमावेरा ब्रैकेट एरो */}
-                        <div
+                        {/* Middle Connecting Bar */}
+                        <div 
                           style={{
-                            position: "absolute",
-                            right: "0px",
-                            top: "0px",
-                            width: 0,
-                            height: 0,
-                            borderTop: "5px solid #cbd5e1",
-                            borderLeft: "5px solid transparent"
+                            flexGrow: 1,
+                            background: "#c7ced8", // Softer Primavera Gray
+                            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.15)"
                           }}
                         />
+
+                        {/* Right Inward Chevron (Kept strictly inside width bounds) */}
                         <div
                           style={{
-                            position: "absolute",
-                            right: "0px",
-                            top: "5px",
                             width: 0,
                             height: 0,
-                            borderBottom: "5px solid transparent",
-                            borderLeft: "5px solid #cbd5e1"
+                            borderTop: "4px solid transparent",   
+                            borderBottom: "4px solid transparent",
+                            borderLeft: "10px solid #c7ced8", // Softer Primavera Gray
+                            flexShrink: 0
                           }}
                         />
                       </div>

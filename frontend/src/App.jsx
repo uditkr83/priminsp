@@ -10,6 +10,12 @@ import Relationships from "./pages/Relationships";
 import Schedule from "./pages/Schedule";
 import Gantt from "./pages/Gantt";
 
+// 🔥 Added: Primavera Resource Management Grid Component
+import PrimaveraUltimateManager from "./pages/ResourcePage"; 
+
+// 📅 Added: Enterprise Calendar Administration Engine Component
+import CalendarPage from "./pages/CalendarPage";
+
 function App() {
   return (
     <BrowserRouter>
@@ -33,6 +39,12 @@ function App() {
             <Route path="/relationships" element={<Relationships />} />
             <Route path="/schedule" element={<Schedule />} />
             <Route path="/gantt" element={<Gantt />} />
+            
+            {/* Connected: Sidebar '/resources' URL directly maps here now */}
+            <Route path="/resources" element={<PrimaveraUltimateManager />} />
+
+            {/* 📅 Connected: Enterprise Calendar Router Link */}
+            <Route path="/calendars" element={<CalendarPage />} />
           </Routes>
         </div>
 

@@ -37,7 +37,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Invalid relationship type" });
     }
 
-    // 3. Activity Existence Validation (🔥 Improvement 1)
+    // 3. Activity Existence Validation
     const activityCheck = await pool.query(
       `SELECT id FROM activities WHERE id IN ($1, $2)`,
       [predecessor_activity_id, successor_activity_id]
@@ -46,7 +46,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "One or more selected activities do not exist" });
     }
 
-    // 4. Circular Relationship Detection (🔥 Improvement 2)
+    // 4. Circular Relationship Detection
     const circularCheck = await pool.query(
       `SELECT id FROM relationships 
        WHERE predecessor_activity_id = $1 AND successor_activity_id = $2`,
@@ -79,9 +79,10 @@ router.post("/", async (req, res) => {
   }
 });
 
-// 🔍 GET: FETCH ALL RELATIONSHIPS WITH IMPACT PREVIEW
+// 🔍 GET: FETCH ALL RELATIONSHIPS WITH IMPACT PREVIEW & WBS INTEGRATION
 router.get("/", async (req, res) => {
   try {
+    // 🌿 FEATURE 3 & DATABASE REQUIREMENTS: LEFT JOIN WBS Table without breaking payload
     const result = await pool.query(`
       SELECT
         r.id,
@@ -89,17 +90,47 @@ router.get("/", async (req, res) => {
         r.successor_activity_id,
         r.relationship_type,
         r.lag,
+        
+        -- Predecessor Details
         p.activity_code AS predecessor_code,
-        p.activity_name AS predecessor_name,
-        p.status AS predecessor_status,
-        p.duration AS predecessor_duration,
-        s.activity_code AS successor_code,
-        s.activity_name AS successor_name,
-        s.status AS successor_status,
-        s.duration AS successor_duration
+p.activity_name AS predecessor_name,
+p.status AS predecessor_status,
+p.duration AS predecessor_duration,
+
+p.early_start AS predecessor_es,
+p.early_finish AS predecessor_ef,
+p.late_start AS predecessor_ls,
+p.late_finish AS predecessor_lf,
+p.total_float AS predecessor_tf,
+p.free_float AS predecessor_ff,
+        
+        -- Successor Details
+s.activity_code AS successor_code,
+s.activity_name AS successor_name,
+s.status AS successor_status,
+s.duration AS successor_duration,
+
+s.early_start AS successor_es,
+s.early_finish AS successor_ef,
+s.late_start AS successor_ls,
+s.late_finish AS successor_lf,
+s.total_float AS successor_tf,
+s.free_float AS successor_ff,
+        
+        -- Predecessor WBS Lineage
+        pw.id AS predecessor_wbs_id,
+        pw.wbs_code AS predecessor_wbs_code,
+        pw.wbs_name AS predecessor_wbs_name,
+        
+        -- Successor WBS Lineage
+        sw.id AS successor_wbs_id,
+        sw.wbs_code AS successor_wbs_code,
+        sw.wbs_name AS successor_wbs_name
       FROM relationships r
-      JOIN activities p ON r.predecessor_activity_id = p.id
-      JOIN activities s ON r.successor_activity_id = s.id
+      LEFT JOIN activities p ON r.predecessor_activity_id = p.id
+      LEFT JOIN activities s ON r.successor_activity_id = s.id
+      LEFT JOIN wbs pw ON p.wbs_id = pw.id
+      LEFT JOIN wbs sw ON s.wbs_id = sw.id
       ORDER BY r.id DESC;
     `);
 
@@ -126,7 +157,7 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid relationship type" });
     }
 
-    // 3. Activity Existence Validation (🔥 Improvement 1)
+    // 3. Activity Existence Validation
     const activityCheck = await pool.query(
       `SELECT id FROM activities WHERE id IN ($1, $2)`,
       [predecessor_activity_id, successor_activity_id]
@@ -135,7 +166,7 @@ router.put("/:id", async (req, res) => {
       return res.status(400).json({ error: "One or more selected activities do not exist" });
     }
 
-    // 4. Circular Relationship Detection (🔥 Improvement 2)
+    // 4. Circular Relationship Detection
     const circularCheck = await pool.query(
       `SELECT id FROM relationships 
        WHERE predecessor_activity_id = $1 AND successor_activity_id = $2`,
