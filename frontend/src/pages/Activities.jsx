@@ -29,11 +29,53 @@ export default function ActivitiesDashboard() {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      const activitiesRes = await API.get("/activities");
-      const data = activitiesRes.data || [];
-      setActivities(data);
-      if (data.length > 0 && !selectedActivity) {
-        setSelectedActivity(data[0]);
+      
+      // Fetch both endpoints concurrently
+      const [activitiesRes, relationshipsRes] = await Promise.all([
+        API.get("/activities"),
+        API.get("/relationships")
+      ]);
+
+      const rawActivities = activitiesRes.data || [];
+      const relationships = relationshipsRes.data || [];
+
+      // 🔄 Enrich activities with their dependencies mapped from relationships
+      const enrichedActivities = rawActivities.map(activity => {
+        const predecessors = relationships
+          .filter(r => r.successor_activity_id === activity.id)
+          .map(r => ({
+            type: "PRED",
+            target_code: r.predecessor_code,
+            relationship_type: r.relationship_type
+          }));
+
+        const successors = relationships
+          .filter(r => r.predecessor_activity_id === activity.id)
+          .map(r => ({
+            type: "SUCC",
+            target_code: r.successor_code,
+            relationship_type: r.relationship_type
+          }));
+
+        return {
+          ...activity,
+          dependencies: [...predecessors, ...successors]
+        };
+      });
+      console.log("ACTIVITIES", rawActivities);
+console.log("RELATIONSHIPS", relationships);
+console.log("ENRICHED", enrichedActivities);
+
+      setActivities(enrichedActivities);
+
+      // Keep current selection up to date, or default to the first node
+      if (enrichedActivities.length > 0) {
+        if (!selectedActivity) {
+          setSelectedActivity(enrichedActivities[0]);
+        } else {
+          const updatedSelection = enrichedActivities.find(a => a.id === selectedActivity.id);
+          setSelectedActivity(updatedSelection || enrichedActivities[0]);
+        }
       }
     } catch (err) {
       console.error("Error aggregating activities enterprise metrics:", err);
@@ -170,8 +212,8 @@ export default function ActivitiesDashboard() {
 
                   // Compute Driving Logic Data Dynamically
                   const rawDeps = activity.dependencies || [];
-                  const predList = rawDeps.filter(d => d.relationship_type === "PRED" || d.type === "PRED");
-                  const succList = rawDeps.filter(d => d.relationship_type === "SUCC" || d.type === "SUCC");
+                  const predList = rawDeps.filter(d => d.type === "PRED");
+                  const succList = rawDeps.filter(d => d.type === "SUCC");
 
                   const predStr = predList.map(d => d.target_code).join(", ") || "-";
                   const succStr = succList.map(d => d.target_code).join(", ") || "-";
@@ -316,7 +358,7 @@ export default function ActivitiesDashboard() {
                 </div>
               )}
 
-              {/* TAB 3: RELATIONSHIPS (5. REAL RELATIONS MAP CONNECTED) */}
+              {/* TAB 3: RELATIONSHIPS */}
               {activeTab === "Relationships" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   
@@ -326,11 +368,11 @@ export default function ActivitiesDashboard() {
                       <MdQueryBuilder color="#10b981" /> Predecessors Mapped Links
                     </div>
                     <div style={{ background: "#090b11", border: "1px solid #1e2330" }}>
-                      {(selectedActivity.dependencies || []).filter(d => d.relationship_type === "PRED" || d.type === "PRED").length > 0 ? (
-                        (selectedActivity.dependencies || []).filter(d => d.relationship_type === "PRED" || d.type === "PRED").map((dep, idx) => (
+                      {(selectedActivity.dependencies || []).filter(d => d.type === "PRED").length > 0 ? (
+                        (selectedActivity.dependencies || []).filter(d => d.type === "PRED").map((dep, idx) => (
                           <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #1e2330" }}>
                             <span style={{ fontFamily: "monospace", color: "#378ADD", fontWeight: 700 }}>{dep.target_code}</span>
-                            <span style={{ fontSize: "10px", color: "#475569" }}>Finish to Start (0d)</span>
+                            <span style={{ fontSize: "10px", color: "#475569" }}>{dep.relationship_type || "Finish to Start"}</span>
                           </div>
                         ))
                       ) : (
@@ -345,11 +387,11 @@ export default function ActivitiesDashboard() {
                       <MdShare color="#378ADD" /> Successors Mapped Links
                     </div>
                     <div style={{ background: "#090b11", border: "1px solid #1e2330" }}>
-                      {(selectedActivity.dependencies || []).filter(d => d.relationship_type === "SUCC" || d.type === "SUCC").length > 0 ? (
-                        (selectedActivity.dependencies || []).filter(d => d.relationship_type === "SUCC" || d.type === "SUCC").map((dep, idx) => (
+                      {(selectedActivity.dependencies || []).filter(d => d.type === "SUCC").length > 0 ? (
+                        (selectedActivity.dependencies || []).filter(d => d.type === "SUCC").map((dep, idx) => (
                           <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #1e2330" }}>
                             <span style={{ fontFamily: "monospace", color: "#f97316", fontWeight: 700 }}>{dep.target_code}</span>
-                            <span style={{ fontSize: "10px", color: "#475569" }}>Start to Start (0d)</span>
+                            <span style={{ fontSize: "10px", color: "#475569" }}>{dep.relationship_type || "Finish to Start"}</span>
                           </div>
                         ))
                       ) : (

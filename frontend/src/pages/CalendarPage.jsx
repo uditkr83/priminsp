@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react"; 
+import API from "../api"; 
 import {
   MdOutlineFolder,
   MdOutlineFolderOpen,
@@ -15,34 +16,28 @@ import {
   MdViewHeadline
 } from "react-icons/md";
 
-// Extended Primavera Mock Data Engine
-const INITIAL_CALENDARS = [
-  { id: "CAL-001", name: "Standard 5 Day Workweek", type: "Global", category: "Global", hoursPerDay: 8, hoursPerWeek: 40, hoursPerMonth: 160, hoursPerYear: 2000, workDays: [1, 2, 3, 4, 5], derivedFrom: "None (Root Base)" },
-  { id: "CAL-002", name: "Standard 6 Day Workweek", type: "Global", category: "Global", hoursPerDay: 8, hoursPerWeek: 48, hoursPerMonth: 192, hoursPerYear: 2400, workDays: [1, 2, 3, 4, 5, 6], derivedFrom: "None (Root Base)" },
-  { id: "CAL-003", name: "24 Hour Calendar", type: "Global", category: "Global", hoursPerDay: 24, hoursPerWeek: 168, hoursPerMonth: 720, hoursPerYear: 8760, workDays: [0, 1, 2, 3, 4, 5, 6], derivedFrom: "None (Root Base)" },
-  { id: "CAL-P01", name: "Station-A Construction Calendar", type: "Project", category: "Project", hoursPerDay: 10, hoursPerWeek: 60, hoursPerMonth: 240, hoursPerYear: 3000, workDays: [1, 2, 3, 4, 5, 6], derivedFrom: "Standard 6 Day Workweek" },
-  { id: "CAL-P02", name: "Electrical Works Calendar", type: "Project", category: "Project", hoursPerDay: 8, hoursPerWeek: 40, hoursPerMonth: 160, hoursPerYear: 2000, workDays: [1, 2, 3, 4, 5], derivedFrom: "Standard 5 Day Workweek" },
-  { id: "CAL-R01", name: "Civil Engineer Calendar", type: "Resource", category: "Resource", hoursPerDay: 8, hoursPerWeek: 44, hoursPerMonth: 176, hoursPerYear: 2200, workDays: [1, 2, 3, 4, 5, 6], derivedFrom: "Standard 5 Day Workweek" }
-];
-
-const INITIAL_HOLIDAYS = [
-  { date: "2026-01-26", name: "Republic Day", type: "Holiday", recurring: true },
-  { date: "2026-08-15", name: "Independence Day", type: "Holiday", recurring: true },
-  { date: "2026-06-15", name: "Project Shutdown Alert", type: "Shutdown", recurring: false }
-];
-
-// Complex Shift Mapping for Graphics Editor Widget
-const INITIAL_SHIFTS = [
-  { id: "s1", name: "Shift 1 (Core Morning)", start: 8, end: 12, color: "#378add" },
-  { id: "s2", name: "Shift 2 (Post-Lunch Execution)", start: 13, end: 17, color: "#10b981" },
-  { id: "s3", name: "Night Shift (Heavy Fleet Ops)", start: 19, end: 23, color: "#a855f7" }
-];
+// Fallback Mock Data केवल तब दिखेगा जब डेटाबेस पूरी तरह खाली होगा
+const FALLBACK_CALENDAR = { 
+  id: "CAL-LOADING",
+  calendarCode: "LOADING...",
+  name: "Loading System Calendars...", 
+  type: "Global", 
+  category: "Global", 
+  hoursPerDay: 8, 
+  hoursPerWeek: 40, 
+  hoursPerMonth: 160, 
+  hoursPerYear: 2000, 
+  derivedFrom: "System Base" 
+};
 
 export default function CalendarPage() {
-  const [calendars] = useState(INITIAL_CALENDARS);
-  const [holidays, setHolidays] = useState(INITIAL_HOLIDAYS);
-  const [shifts, setShifts] = useState(INITIAL_SHIFTS);
-  const [selectedCalId, setSelectedCalId] = useState("CAL-P01");
+  const [calendars, setCalendars] = useState([]);
+  const [holidays, setHolidays] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  // Phase 3 - Step 1: Database workdays state
+  const [workdays, setWorkdays] = useState([]);
+  
+  const [selectedCalId, setSelectedCalId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [treeExpanded, setTreeExpanded] = useState({ Global: true, Project: true, Resource: true });
   
@@ -52,8 +47,95 @@ export default function CalendarPage() {
 
   const [isExceptionModalOpen, setIsExceptionModalOpen] = useState(false);
   const [activeExceptionForm, setActiveExceptionForm] = useState({ date: "", name: "", type: "Holiday", recurring: true });
+  const [isLoading, setIsLoading] = useState(true);
 
-  const activeCalendar = calendars.find(c => c.id === selectedCalId) || calendars[0];
+  useEffect(() => {
+    loadCalendarData();
+  }, []);
+
+  const loadCalendarData = async () => {
+    try {
+      setIsLoading(true);
+      
+      // 1. Fetch Calendars
+      const calRes = await API.get("/calendars");
+      
+      if (calRes.data && calRes.data.length > 0) {
+        const mappedCalendars = calRes.data.map(c => ({
+          id: c.id,                      
+          calendarCode: c.calendar_code, 
+          name: c.calendar_name,
+          type: c.calendar_type || "Project",
+          category: c.calendar_type || "Project", 
+          hoursPerDay: c.hours_per_day || 8,
+          hoursPerWeek: c.hours_per_week || 40,
+          hoursPerMonth: 160,
+          hoursPerYear: 2000,
+          derivedFrom: c.derived_from || "None (Root Base)"
+        }));
+
+        setCalendars(mappedCalendars);
+        setSelectedCalId(mappedCalendars[0].id);
+      }
+
+      // 2. Fetch Holidays/Exceptions from Database
+      try {
+        const holidayRes = await API.get("/calendar/exceptions/1");
+        if (holidayRes.data) {
+          setHolidays(
+            holidayRes.data.map(h => ({
+              date: h.exception_date?.split("T")[0],
+              name: h.exception_name,
+              type: h.exception_type,
+              recurring: h.is_recurring
+            }))
+          );
+        }
+      } catch (hErr) {
+        console.error("Holidays fetch failed, using empty array", hErr);
+        setHolidays([]);
+      }
+
+      // 3. Fetch Shifts from Database
+      try {
+        const shiftRes = await API.get("/calendar/shifts/1");
+        if (shiftRes.data) {
+          setShifts(
+            shiftRes.data.map(s => ({
+              id: s.id,
+              name: s.shift_name,
+              start: Number(s.start_hour),
+              end: Number(s.end_hour),
+              color: s.id === 1 || s.shift_name?.includes("1") ? "#378add" : s.id === 2 || s.shift_name?.includes("2") ? "#10b981" : "#a855f7"
+            }))
+          );
+        }
+      } catch (sErr) {
+        console.error("Shifts fetch failed, using empty array", sErr);
+        setShifts([]);
+      }
+
+      // 4. Phase 3 - Step 2 & 3: Fetch Workdays dynamically from backend
+      try {
+        const workdayRes = await API.get("/calendar/workdays/1");
+        if (workdayRes.data && workdayRes.data.length > 0) {
+          setWorkdays(workdayRes.data.map(w => w.day_of_week));
+        } else {
+          setWorkdays([1, 2, 3, 4, 5]); // Fallback if table empty
+        }
+      } catch (wErr) {
+        console.error("Workday fetch failed, fallback to Mon-Fri", wErr);
+        setWorkdays([1, 2, 3, 4, 5]);
+      }
+
+    } catch (err) {
+      console.error("Calendar master bundle load failed from express backend", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const activeCalendar = calendars.find(c => c.id === selectedCalId) || FALLBACK_CALENDAR;
 
   const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOffset = (year, month) => {
@@ -76,23 +158,13 @@ export default function CalendarPage() {
     setIsExceptionModalOpen(true);
   };
 
-  const handleSaveException = () => {
-    const remaining = holidays.filter(h => h.date !== activeExceptionForm.date);
-    setHolidays([...remaining, activeExceptionForm]);
-    setIsExceptionModalOpen(false);
-  };
-
-  const handleDeleteException = () => {
-    setHolidays(holidays.filter(h => h.date !== activeExceptionForm.date));
-    setIsExceptionModalOpen(false);
-  };
-
-  const handleShiftBlockClick = (id, property, val) => {
-    setShifts(shifts.map(s => s.id === id ? { ...s, [property]: val } : s));
-  };
+  // Effective workdays checklist checker with fallback mechanism
+  const targetWorkdaysList = workdays.length > 0 ? workdays : [1, 2, 3, 4, 5];
 
   const calculateStats = () => {
     let workingDays = 0, totalHours = 0, holidayCount = 0;
+    if (!activeCalendar) return { workingDays, totalHours, holidayCount };
+
     for (let d = 1; d <= daysInMonth; d++) {
       const dateObj = new Date(currentYear, currentMonth, d);
       const dayOfWeek = dateObj.getDay(); 
@@ -101,7 +173,7 @@ export default function CalendarPage() {
       
       if (matched) {
         if (matched.type === "Holiday") holidayCount++;
-      } else if (activeCalendar.workDays.includes(dayOfWeek)) {
+      } else if (targetWorkdaysList.includes(dayOfWeek)) {
         workingDays++;
         totalHours += activeCalendar.hoursPerDay;
       }
@@ -115,7 +187,7 @@ export default function CalendarPage() {
   return (
     <div style={styles.container}>
       
-      {/* FIXED TOP HEADER SECTION (FIXED OVERLAP & FONT SQUISHING) */}
+      {/* FIXED TOP HEADER SECTION */}
       <div style={styles.topHeader}>
         <div style={styles.headerTextWrapper}>
           <div style={{ marginBottom: "6px" }}>
@@ -150,24 +222,30 @@ export default function CalendarPage() {
         <div style={styles.panel}>
           <div style={styles.panelHeader}><span>CALENDAR DICTIONARY</span><span style={styles.countBadge}>{calendars.length} Nodes</span></div>
           <div style={styles.panelContent}>
-            {["Global", "Project", "Resource"].map(cat => (
-              <div key={cat} style={{ marginBottom: "6px" }}>
-                <div style={styles.treeFolderRow} onClick={() => setTreeExpanded({ ...treeExpanded, [cat]: !treeExpanded[cat] })}>
-                  {treeExpanded[cat] ? <MdOutlineFolderOpen color="#fbbf24" size={13} /> : <MdOutlineFolder color="#fbbf24" size={13} />}
-                  <span style={styles.treeFolderLabel}>{cat} Layout Templates</span>
+            {isLoading ? (
+              <div style={{ color: "#64748b", padding: "10px", textAlign: "center" }}>Fetching database calendars...</div>
+            ) : calendars.length === 0 ? (
+              <div style={{ color: "#ef4444", padding: "10px", textAlign: "center" }}>No calendars found in database!</div>
+            ) : (
+              ["Global", "Project", "Resource"].map(cat => (
+                <div key={cat} style={{ marginBottom: "6px" }}>
+                  <div style={styles.treeFolderRow} onClick={() => setTreeExpanded({ ...treeExpanded, [cat]: !treeExpanded[cat] })}>
+                    {treeExpanded[cat] ? <MdOutlineFolderOpen color="#fbbf24" size={13} /> : <MdOutlineFolder color="#fbbf24" size={13} />}
+                    <span style={styles.treeFolderLabel}>{cat} Layout Templates</span>
+                  </div>
+                  
+                  {treeExpanded[cat] && calendars.filter(c => c.category.toLowerCase() === cat.toLowerCase() && c.name.toLowerCase().includes(searchQuery.toLowerCase())).map(cal => {
+                    const isSelected = cal.id === selectedCalId;
+                    return (
+                      <div key={cal.id} onClick={() => setSelectedCalId(cal.id)} style={{ ...styles.treeItemRow, background: isSelected ? "rgba(55,138,221,0.15)" : "transparent", boxShadow: isSelected ? "inset 2px 0 0 #378add" : "none" }}>
+                        <MdCalendarToday size={12} color={isSelected ? "#378add" : "#64748b"} />
+                        <span>{cal.name}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                
-                {treeExpanded[cat] && calendars.filter(c => c.category === cat && c.name.toLowerCase().includes(searchQuery.toLowerCase())).map(cal => {
-                  const isSelected = cal.id === selectedCalId;
-                  return (
-                    <div key={cal.id} onClick={() => setSelectedCalId(cal.id)} style={{ ...styles.treeItemRow, background: isSelected ? "rgba(55,138,221,0.15)" : "transparent", boxShadow: isSelected ? "inset 2px 0 0 #378add" : "none" }}>
-                      <MdCalendarToday size={12} color={isSelected ? "#378add" : "#64748b"} />
-                      <span>{cal.name}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -198,7 +276,8 @@ export default function CalendarPage() {
                   const formattedDate = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
                   
                   const matched = holidays.find(h => h.date === formattedDate);
-                  const isWorking = activeCalendar.workDays.includes(dayOfWeek);
+                  // Better Version implementation: direct state validation
+                  const isWorking = targetWorkdaysList.includes(dayOfWeek);
                   const isToday = dayNum === 18 && currentMonth === 5 && currentYear === 2026;
 
                   let cellStyle = { ...styles.gridCellWorking };
@@ -231,7 +310,7 @@ export default function CalendarPage() {
                           const dObj = new Date(currentYear, mIdx, dNum);
                           const fDate = `${currentYear}-${String(mIdx + 1).padStart(2, "0")}-${String(dNum).padStart(2, "0")}`;
                           const isHolidayMatch = holidays.some(h => h.date === fDate);
-                          const isWork = activeCalendar.workDays.includes(dObj.getDay());
+                          const isWork = targetWorkdaysList.includes(dObj.getDay());
                           
                           let cellBg = "#1e293b";
                           if (isHolidayMatch) cellBg = "#f97316";
@@ -259,33 +338,31 @@ export default function CalendarPage() {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px", position: "relative", marginTop: "10px" }}>
-                  {shifts.map(s => {
-                    const startPos = (s.start / 24) * 100;
-                    const widthBlock = ((s.end - s.start) / 24) * 100;
-                    return (
-                      <div key={s.id} style={styles.shiftTrackLane}>
-                        <span style={styles.shiftLaneLabel}>{s.name}</span>
-                        <div style={styles.laneCoreBackground}>
-                          <div 
-                            style={{
-                              position: "absolute", left: `${startPos}%`, width: `${widthBlock}%`,
-                              background: s.color, height: "18px", borderRadius: "3px",
-                              cursor: "ew-resize", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 6px"
-                            }}
-                            onClick={() => {
-                              const nextStart = s.start === 8 ? 7 : 8;
-                              const nextEnd = s.end === 12 ? 11 : 12;
-                              handleShiftBlockClick(s.id, "start", nextStart);
-                              handleShiftBlockClick(s.id, "end", nextEnd);
-                            }}
-                          >
-                            <span style={styles.sliderInsideText}>{s.start}h</span>
-                            <span style={styles.sliderInsideText}>{s.end}h</span>
+                  {shifts.length === 0 ? (
+                    <div style={{ color: "#64748b", fontSize: "10px", padding: "10px", textAlign: "center" }}>No active shifts parsed from database context.</div>
+                  ) : (
+                    shifts.map(s => {
+                      const startPos = (s.start / 24) * 100;
+                      const widthBlock = ((s.end - s.start) / 24) * 100;
+                      return (
+                        <div key={s.id} style={styles.shiftTrackLane}>
+                          <span style={styles.shiftLaneLabel}>{s.name}</span>
+                          <div style={styles.laneCoreBackground}>
+                            <div 
+                              style={{
+                                position: "absolute", left: `${startPos}%`, width: `${widthBlock}%`,
+                                background: s.color || "#378add", height: "18px", borderRadius: "3px",
+                                display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 6px"
+                              }}
+                            >
+                              <span style={styles.sliderInsideText}>{s.start}h</span>
+                              <span style={styles.sliderInsideText}>{s.end}h</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>
@@ -310,7 +387,15 @@ export default function CalendarPage() {
 
             <div>
               <div style={styles.sectionTitle}>GENERAL PROFILE OBJECTS</div>
-              <div style={styles.formGroup}><label style={styles.label}>Calendar ID</label><input type="text" readOnly value={activeCalendar.id} style={styles.inputReadOnly} /></div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Calendar ID</label>
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={activeCalendar.calendarCode || activeCalendar.id} 
+                  style={styles.inputReadOnly} 
+                />
+              </div>
               <div style={styles.formGroup}><label style={styles.label}>Pool Category Context</label><input type="text" readOnly value={activeCalendar.type} style={styles.inputReadOnly} /></div>
             </div>
 
@@ -329,42 +414,6 @@ export default function CalendarPage() {
 
       </div>
 
-      {/* MODAL WINDOW */}
-      {isExceptionModalOpen && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalWrapper}>
-            <div style={styles.modalHeader}>
-              <span style={{ fontWeight: 700, color: "#f97316" }}>📋 P6 Calendar Exception Parameters Registry</span>
-              <MdClose style={{ cursor: "pointer" }} size={16} onClick={() => setIsExceptionModalOpen(false)} />
-            </div>
-            <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Exception Sequence Effective Date</label>
-                <input type="text" readOnly value={activeExceptionForm.date} style={styles.inputReadOnly} />
-              </div>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Exception Milestone Label Description</label>
-                <input type="text" value={activeExceptionForm.name} onChange={(e) => setActiveExceptionForm({ ...activeExceptionForm, name: e.target.value })} style={styles.fieldInputEditable} />
-              </div>
-              <div style={styles.formGroup}>
-                <label style={styles.label}>Constraint Operational Type</label>
-                <select value={activeExceptionForm.type} onChange={(e) => setActiveExceptionForm({ ...activeExceptionForm, type: e.target.value })} style={styles.fieldInputEditable}>
-                  <option value="Holiday">Critical Public Holiday Matrix</option>
-                  <option value="Shutdown">Forced System Site Shutdown</option>
-                </select>
-              </div>
-            </div>
-            <div style={styles.modalFooter}>
-              <button onClick={handleDeleteException} style={{ ...styles.btnSecondary, color: "#ef4444", borderColor: "rgba(239,68,68,0.2)" }}>Purge Exception</button>
-              <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
-                <button onClick={() => setIsExceptionModalOpen(false)} style={styles.btnSecondary}>Dismiss</button>
-                <button onClick={handleSaveException} style={styles.btnPrimary}>Commit Parameters</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* BOTTOM STRIP */}
       <div style={styles.bottomBar}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#64748b", fontWeight: 700, borderRight: "1px solid #1e2330", paddingRight: "16px" }}>
@@ -382,51 +431,14 @@ export default function CalendarPage() {
   );
 }
 
-// FULLY OPTIMIZED STYLES FOR CRYSTAL CLEAR CLEAN TEXT LOOK
+// STYLES OBJECT (PRIMAVERA THEME)
 const styles = {
-  container: { 
-    background: "#0d1018", 
-    height: "100vh", 
-    display: "flex", 
-    flexDirection: "column", 
-    color: "#e2e8f0", 
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", 
-    fontSize: "11px", 
-    overflow: "hidden", 
-    boxSizing: "border-box" 
-  },
-  
-  // SOLVED: dynamic padding flow and height spacing to avoid text overlap
-  topHeader: { 
-    minHeight: "84px", 
-    background: "#0f1117", 
-    borderBottom: "1px solid #1e2330", 
-    display: "flex", 
-    alignItems: "center", 
-    justifyContent: "space-between", 
-    padding: "14px 20px", 
-    boxSizing: "border-box" 
-  },
+  container: { background: "#0d1018", height: "100vh", display: "flex", flexDirection: "column", color: "#e2e8f0", fontFamily: "'Inter', sans-serif", fontSize: "11px", overflow: "hidden", boxSizing: "border-box" },
+  topHeader: { minHeight: "84px", background: "#0f1117", borderBottom: "1px solid #1e2330", display: "flex", alignItems: "center", padding: "14px 20px", justifyContent: "space-between", boxSizing: "border-box" },
   headerTextWrapper: { display: "flex", flexDirection: "column", justifyContent: "center" },
   headerBadge: { background: "rgba(55,138,221,0.12)", color: "#378add", padding: "3px 8px", borderRadius: "2px", fontSize: "9px", fontWeight: 700, display: "inline-block" },
-  
-  // SOLVED: Letter spacing added and font weight softened so letters don't smash into each other
-  mainTitle: { 
-    fontSize: "18px", 
-    fontWeight: 700, 
-    color: "#f1f5f9", 
-    margin: "6px 0", 
-    lineHeight: "1.3", 
-    letterSpacing: "0.4px" 
-  },
-  subTitle: { 
-    fontSize: "11px", 
-    color: "#64748b", 
-    margin: 0, 
-    lineHeight: "1.4",
-    letterSpacing: "0.1px"
-  },
-  
+  mainTitle: { fontSize: "18px", fontWeight: 700, color: "#f1f5f9", margin: "6px 0", lineHeight: "1.3", letterSpacing: "0.4px" },
+  subTitle: { fontSize: "11px", color: "#64748b", margin: 0, lineHeight: "1.4", letterSpacing: "0.1px" },
   viewToggleBtn: { border: "none", fontSize: "10px", padding: "5px 12px", borderRadius: "3px", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px", fontWeight: "600" },
   toolbar: { height: "32px", background: "#141822", borderBottom: "1px solid #1e2330", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 6px" },
   toolbarBtn: { background: "transparent", border: "none", color: "#94a3b8", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "11px" },
@@ -468,17 +480,10 @@ const styles = {
   formGroup: { display: "flex", flexDirection: "column", gap: "2px", marginBottom: "5px" },
   label: { fontSize: "10px", color: "#475569", fontWeight: 600 },
   inputReadOnly: { background: "#0d1018", border: "1px solid #1e2330", padding: "4px 6px", color: "#94a3b8", fontSize: "11px", width: "100%", boxSizing: "border-box", outline: "none" },
-  fieldInputEditable: { background: "#0d1018", border: "1px solid #2d3748", padding: "5px 8px", color: "#fff", fontSize: "11px", width: "100%", boxSizing: "border-box", outline: "none" },
   metricsGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px" },
   metricCard: { background: "#0d1018", border: "1px solid #1e2330", padding: "6px", display: "flex", flexDirection: "column" },
   metricLabel: { fontSize: "9px", color: "#475569", fontWeight: 700 },
   metricValue: { fontSize: "12px", color: "#378add", fontWeight: 700 },
-  modalOverlay: { position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(5,7,12,0.85)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" },
-  modalWrapper: { background: "#0f1117", border: "1px solid #2d3748", borderRadius: "4px", width: "420px", display: "flex", flexDirection: "column" },
-  modalHeader: { padding: "10px 14px", background: "#141822", borderBottom: "1px solid #2d3748", display: "flex", alignItems: "center", justifyContent: "space-between" },
-  modalFooter: { padding: "10px 14px", background: "#141822", borderTop: "1px solid #1e2330", display: "flex", alignItems: "center" },
-  btnPrimary: { background: "#378add", color: "#fff", border: "none", padding: "5px 14px", borderRadius: "3px", cursor: "pointer", fontWeight: 600 },
-  btnSecondary: { background: "#1e2330", color: "#cbd5e1", border: "1px solid #334155", padding: "4px 12px", borderRadius: "3px", cursor: "pointer" },
   bottomBar: { height: "26px", background: "#141822", borderTop: "1px solid #1e2330", display: "flex", alignItems: "center", padding: "0 12px", gap: "16px" },
   summaryStatsWrapper: { display: "flex", gap: "20px" },
   statNode: { color: "#cbd5e1", fontSize: "11px" }

@@ -6,7 +6,7 @@ router.get("/", async (req, res) => {
   try {
 
     const result = await pool.query(`
-      SELECT
+SELECT
     w.id,
     w.parent_wbs_id,
     w.wbs_code,
@@ -17,8 +17,12 @@ router.get("/", async (req, res) => {
     a.activity_name,
     a.duration,
 
-    a.start_date AS early_start,
-    a.finish_date AS early_finish,
+    s.early_start,
+    s.early_finish,
+    s.late_start,
+    s.late_finish,
+    s.total_float,
+    s.is_critical,
 
     a.percent_complete,
     a.status
@@ -26,8 +30,12 @@ router.get("/", async (req, res) => {
 FROM wbs w
 LEFT JOIN activities a
 ON w.id = a.wbs_id
-ORDER BY w.id;
-    `);
+
+LEFT JOIN schedules s
+ON a.id = s.activity_id
+
+ORDER BY w.sort_order, a.id;
+`);
 
     res.json(result.rows);
 
