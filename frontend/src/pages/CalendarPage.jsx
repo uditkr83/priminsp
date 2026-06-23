@@ -34,7 +34,7 @@ export default function CalendarPage() {
   const [calendars, setCalendars] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [shifts, setShifts] = useState([]);
-  // Phase 3 - Step 1: Database workdays state
+  // Phase 3 & 4: Database dynamic workdays state
   const [workdays, setWorkdays] = useState([]);
   
   const [selectedCalId, setSelectedCalId] = useState("");
@@ -49,6 +49,17 @@ export default function CalendarPage() {
   const [activeExceptionForm, setActiveExceptionForm] = useState({ date: "", name: "", type: "Holiday", recurring: true });
   const [isLoading, setIsLoading] = useState(true);
 
+  // --- PHASE 1 STEP 1: CREATE MODAL STATE ---
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newCalendar, setNewCalendar] = useState({
+    calendar_code: "",
+    calendar_name: "",
+    calendar_type: "Global",
+    hours_per_day: 8,
+    hours_per_week: 40
+  });
+
+  // Master Calendars List Load करने के लिए
   useEffect(() => {
     loadCalendarData();
   }, []);
@@ -57,7 +68,7 @@ export default function CalendarPage() {
     try {
       setIsLoading(true);
       
-      // 1. Fetch Calendars
+      // 1. Fetch Calendars Master List
       const calRes = await API.get("/calendars");
       
       if (calRes.data && calRes.data.length > 0) {
@@ -76,6 +87,8 @@ export default function CalendarPage() {
 
         setCalendars(mappedCalendars);
         setSelectedCalId(mappedCalendars[0].id);
+      } else {
+        setCalendars([]);
       }
 
       // 2. Fetch Holidays/Exceptions from Database
@@ -96,38 +109,6 @@ export default function CalendarPage() {
         setHolidays([]);
       }
 
-      // 3. Fetch Shifts from Database
-      try {
-        const shiftRes = await API.get("/calendar/shifts/1");
-        if (shiftRes.data) {
-          setShifts(
-            shiftRes.data.map(s => ({
-              id: s.id,
-              name: s.shift_name,
-              start: Number(s.start_hour),
-              end: Number(s.end_hour),
-              color: s.id === 1 || s.shift_name?.includes("1") ? "#378add" : s.id === 2 || s.shift_name?.includes("2") ? "#10b981" : "#a855f7"
-            }))
-          );
-        }
-      } catch (sErr) {
-        console.error("Shifts fetch failed, using empty array", sErr);
-        setShifts([]);
-      }
-
-      // 4. Phase 3 - Step 2 & 3: Fetch Workdays dynamically from backend
-      try {
-        const workdayRes = await API.get("/calendar/workdays/1");
-        if (workdayRes.data && workdayRes.data.length > 0) {
-          setWorkdays(workdayRes.data.map(w => w.day_of_week));
-        } else {
-          setWorkdays([1, 2, 3, 4, 5]); // Fallback if table empty
-        }
-      } catch (wErr) {
-        console.error("Workday fetch failed, fallback to Mon-Fri", wErr);
-        setWorkdays([1, 2, 3, 4, 5]);
-      }
-
     } catch (err) {
       console.error("Calendar master bundle load failed from express backend", err);
     } finally {
@@ -135,7 +116,79 @@ export default function CalendarPage() {
     }
   };
 
+  // --- LIGHTWEIGHT FUNCTION FOR DETAILS ---
+  const loadCalendarDetails = async (calendarId) => {
+    try {
+      // 1. Fetch Workdays Dynamically
+      const workdayRes = await API.get(`/calendars/workdays/${calendarId}`);
+      if (workdayRes.data?.length > 0) {
+        setWorkdays(workdayRes.data.map(w => w.day_of_week));
+      } else {
+        setWorkdays([]); 
+      }
+
+      // 2. Fetch Shifts Dynamically
+      const shiftRes = await API.get(`/calendars/shifts/${calendarId}`);
+      setShifts(
+        shiftRes.data.map(s => ({
+          id: s.id,
+          name: s.shift_name,
+          start: Number(s.start_hour),
+          end: Number(s.end_hour),
+          color: "#378add"
+        }))
+      );
+
+    } catch (err) {
+      console.error("Error fetching dynamic calendar details:", err);
+    }
+  };
+
+  // Active Calendar context selection
   const activeCalendar = calendars.find(c => c.id === selectedCalId) || FALLBACK_CALENDAR;
+
+  // --- USEEFFECT FOR SELECTING CALENDAR DYNAMICALLY ---
+  useEffect(() => {
+    if (!selectedCalId || selectedCalId === "CAL-LOADING") return;
+
+    loadCalendarDetails(selectedCalId);
+  }, [selectedCalId]);
+
+  // --- PHASE 1 STEP 3: CREATE CALENDAR FUNCTION ---
+  const createCalendar = async () => {
+    try {
+      await API.post("/calendars", newCalendar);
+      setShowCreateModal(false);
+      setNewCalendar({
+        calendar_code: "",
+        calendar_name: "",
+        calendar_type: "Global",
+        hours_per_day: 8,
+        hours_per_week: 40
+      });
+      loadCalendarData();
+    } catch (err) {
+      console.error(err);
+      alert("Calendar creation failed");
+    }
+  };
+
+  // --- PHASE 4: WORKDAY TOGGLE EDITOR FUNCTION WITH COMPACT STATE SYNC ---
+  const toggleWorkday = async (dayOfWeek) => {
+    if (activeCalendar.id === "CAL-LOADING") return;
+    try {
+      // बैकएंड पर वर्कडे वर्किंग/नॉन-वर्किंग स्विच करें
+      await API.put(`/calendars/workdays/${activeCalendar.id}`, {
+        day_of_week: dayOfWeek
+      });
+      
+      // ऑप्टिमाइज़्ड ग्रिड रेंडर के लिए सिर्फ इस स्पेसिफिक कैलेंडर की स्टेट रिफ्रेश करें
+      loadCalendarDetails(activeCalendar.id);
+    } catch (err) {
+      console.error("Failed to toggle workday", err);
+      alert("Error toggling working day profile");
+    }
+  };
 
   const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOffset = (year, month) => {
@@ -158,9 +211,6 @@ export default function CalendarPage() {
     setIsExceptionModalOpen(true);
   };
 
-  // Effective workdays checklist checker with fallback mechanism
-  const targetWorkdaysList = workdays.length > 0 ? workdays : [1, 2, 3, 4, 5];
-
   const calculateStats = () => {
     let workingDays = 0, totalHours = 0, holidayCount = 0;
     if (!activeCalendar) return { workingDays, totalHours, holidayCount };
@@ -173,7 +223,7 @@ export default function CalendarPage() {
       
       if (matched) {
         if (matched.type === "Holiday") holidayCount++;
-      } else if (targetWorkdaysList.includes(dayOfWeek)) {
+      } else if (workdays.includes(dayOfWeek)) {
         workingDays++;
         totalHours += activeCalendar.hoursPerDay;
       }
@@ -205,7 +255,9 @@ export default function CalendarPage() {
       {/* TOP COMMAND ACTION TOOLBAR */}
       <div style={styles.toolbar}>
         <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
-          <button style={styles.toolbarBtn}><MdAdd size={14} /> New Calendar</button>
+          <button style={styles.toolbarBtn} onClick={() => setShowCreateModal(true)}>
+            <MdAdd size={14} /> New Calendar
+          </button>
           <button style={styles.toolbarBtn}><MdContentCopy size={14} /> Copy Calendar</button>
           <div style={styles.divider} />
           <button style={styles.toolbarBtn} onClick={() => handleDayClick(18)}><MdOutlineCelebration size={14} color="#f97316" /> Declare Exception Event</button>
@@ -234,7 +286,7 @@ export default function CalendarPage() {
                     <span style={styles.treeFolderLabel}>{cat} Layout Templates</span>
                   </div>
                   
-                  {treeExpanded[cat] && calendars.filter(c => c.category.toLowerCase() === cat.toLowerCase() && c.name.toLowerCase().includes(searchQuery.toLowerCase())).map(cal => {
+                  {treeExpanded[cat] && calendars.filter(c => c.category?.toLowerCase() === cat.toLowerCase() && c.name?.toLowerCase().includes(searchQuery.toLowerCase())).map(cal => {
                     const isSelected = cal.id === selectedCalId;
                     return (
                       <div key={cal.id} onClick={() => setSelectedCalId(cal.id)} style={{ ...styles.treeItemRow, background: isSelected ? "rgba(55,138,221,0.15)" : "transparent", boxShadow: isSelected ? "inset 2px 0 0 #378add" : "none" }}>
@@ -276,8 +328,7 @@ export default function CalendarPage() {
                   const formattedDate = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
                   
                   const matched = holidays.find(h => h.date === formattedDate);
-                  // Better Version implementation: direct state validation
-                  const isWorking = targetWorkdaysList.includes(dayOfWeek);
+                  const isWorking = workdays.includes(dayOfWeek);
                   const isToday = dayNum === 18 && currentMonth === 5 && currentYear === 2026;
 
                   let cellStyle = { ...styles.gridCellWorking };
@@ -287,7 +338,11 @@ export default function CalendarPage() {
                   if (isToday) cellStyle = { ...cellStyle, ...styles.gridCellToday };
 
                   return (
-                    <div key={`day-${dayNum}`} style={cellStyle} onClick={() => handleDayClick(dayNum)}>
+                    <div 
+                      key={`day-${dayNum}`} 
+                      style={{ ...cellStyle, cursor: "pointer" }} 
+                      onClick={() => toggleWorkday(dayOfWeek)}
+                    >
                       <span style={{ fontWeight: 700 }}>{dayNum}</span>
                       {matched && <span style={styles.miniLabelEvent}>{matched.name.substring(0,6)}..</span>}
                     </div>
@@ -310,7 +365,7 @@ export default function CalendarPage() {
                           const dObj = new Date(currentYear, mIdx, dNum);
                           const fDate = `${currentYear}-${String(mIdx + 1).padStart(2, "0")}-${String(dNum).padStart(2, "0")}`;
                           const isHolidayMatch = holidays.some(h => h.date === fDate);
-                          const isWork = targetWorkdaysList.includes(dObj.getDay());
+                          const isWork = workdays.includes(dObj.getDay());
                           
                           let cellBg = "#1e293b";
                           if (isHolidayMatch) cellBg = "#f97316";
@@ -339,7 +394,7 @@ export default function CalendarPage() {
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px", position: "relative", marginTop: "10px" }}>
                   {shifts.length === 0 ? (
-                    <div style={{ color: "#64748b", fontSize: "10px", padding: "10px", textAlign: "center" }}>No active shifts parsed from database context.</div>
+                    <div style={{ color: "#64748b", fontSize: "10px", padding: "10px", textAlign: "center" }}>No active shifts parsed from database context for this calendar.</div>
                   ) : (
                     shifts.map(s => {
                       const startPos = (s.start / 24) * 100;
@@ -427,6 +482,76 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      {/* CREATE CALENDAR MODAL UI */}
+      {showCreateModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <div style={styles.modalHeader}>
+              <span>CREATE NEW SYSTEM CALENDAR</span>
+              <button style={styles.closeBtn} onClick={() => setShowCreateModal(false)}><MdClose size={16} /></button>
+            </div>
+            <div style={styles.modalBody}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Calendar Code</label>
+                <input 
+                  type="text" 
+                  value={newCalendar.calendar_code} 
+                  onChange={(e) => setNewCalendar({...newCalendar, calendar_code: e.target.value})} 
+                  style={styles.modalInput} 
+                  placeholder="e.g. CAL-2026-PROJ"
+                />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Calendar Name</label>
+                <input 
+                  type="text" 
+                  value={newCalendar.calendar_name} 
+                  onChange={(e) => setNewCalendar({...newCalendar, calendar_name: e.target.value})} 
+                  style={styles.modalInput} 
+                  placeholder="e.g. Standard Project Workshift"
+                />
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Calendar Type</label>
+                <select 
+                  value={newCalendar.calendar_type} 
+                  onChange={(e) => setNewCalendar({...newCalendar, calendar_type: e.target.value})} 
+                  style={styles.modalSelect}
+                >
+                  <option value="Global">Global</option>
+                  <option value="Project">Project</option>
+                  <option value="Resource">Resource</option>
+                </select>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Hours / Day</label>
+                  <input 
+                    type="number" 
+                    value={newCalendar.hours_per_day} 
+                    onChange={(e) => setNewCalendar({...newCalendar, hours_per_day: Number(e.target.value)})} 
+                    style={styles.modalInput} 
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Hours / Week</label>
+                  <input 
+                    type="number" 
+                    value={newCalendar.hours_per_week} 
+                    onChange={(e) => setNewCalendar({...newCalendar, hours_per_week: Number(e.target.value)})} 
+                    style={styles.modalInput} 
+                  />
+                </div>
+              </div>
+            </div>
+            <div style={styles.modalFooter}>
+              <button style={styles.cancelBtn} onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button style={styles.submitBtn} onClick={createCalendar}>Save Calendar Node</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -457,10 +582,10 @@ const styles = {
   calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px", background: "#1e2330", padding: "2px" },
   gridDayHeader: { background: "#141822", color: "#64748b", textAlign: "center", padding: "4px 0", fontWeight: 700, fontSize: "10px" },
   gridCellDisabled: { background: "#090d16" },
-  gridCellWorking: { background: "#1e293b", border: "1px solid #334155", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", cursor: "pointer", color: "#e2e8f0" },
-  gridCellNonWorking: { background: "#090d16", border: "1px solid #1e2330", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", cursor: "pointer", color: "#475569" },
-  gridCellHoliday: { background: "rgba(249,115,22,0.15)", border: "1px solid #f97316", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", cursor: "pointer", color: "#f97316" },
-  gridCellShutdown: { background: "rgba(239,68,68,0.15)", border: "1px solid #ef4444", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", cursor: "pointer", color: "#ef4444" },
+  gridCellWorking: { background: "#1e293b", border: "1px solid #334155", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", color: "#e2e8f0" },
+  gridCellNonWorking: { background: "#090d16", border: "1px solid #1e2330", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", color: "#475569" },
+  gridCellHoliday: { background: "rgba(249,115,22,0.15)", border: "1px solid #f97316", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", color: "#f97316" },
+  gridCellShutdown: { background: "rgba(239,68,68,0.15)", border: "1px solid #ef4444", padding: "4px 6px", display: "flex", flexDirection: "column", height: "38px", color: "#ef4444" },
   gridCellToday: { outline: "1.5px solid #f59e0b", outlineOffset: "-1.5px" },
   miniLabelEvent: { fontSize: "8px", background: "rgba(0,0,0,0.3)", padding: "1px 2px", color: "#94a3b8", borderRadius: "1px", marginTop: "auto", overflow: "hidden" },
   yearViewContainerGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px", padding: "4px" },
@@ -486,5 +611,17 @@ const styles = {
   metricValue: { fontSize: "12px", color: "#378add", fontWeight: 700 },
   bottomBar: { height: "26px", background: "#141822", borderTop: "1px solid #1e2330", display: "flex", alignItems: "center", padding: "0 12px", gap: "16px" },
   summaryStatsWrapper: { display: "flex", gap: "20px" },
-  statNode: { color: "#cbd5e1", fontSize: "11px" }
+  statNode: { color: "#cbd5e1", fontSize: "11px" },
+
+  // MODAL STYLES
+  modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(5, 7, 12, 0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modalContent: { background: "#0f1117", border: "1px solid #1e2330", width: "400px", borderRadius: "4px", boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5)", overflow: "hidden" },
+  modalHeader: { background: "#141822", borderBottom: "1px solid #1e2330", padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: "700", color: "#94a3b8" },
+  closeBtn: { background: "transparent", border: "none", color: "#64748b", cursor: "pointer" },
+  modalBody: { padding: "14px", display: "flex", flexDirection: "column", gap: "12px" },
+  modalInput: { background: "#0d1018", border: "1px solid #1e2330", padding: "6px 8px", color: "#fff", fontSize: "11px", borderRadius: "2px", outline: "none" },
+  modalSelect: { background: "#0d1018", border: "1px solid #1e2330", padding: "6px 8px", color: "#fff", fontSize: "11px", borderRadius: "2px", outline: "none" },
+  modalFooter: { padding: "10px 14px", background: "#141822", borderTop: "1px solid #1e2330", display: "flex", justifyContent: "flex-end", gap: "8px" },
+  cancelBtn: { background: "transparent", border: "1px solid #334155", color: "#cbd5e1", padding: "5px 12px", borderRadius: "2px", cursor: "pointer", fontSize: "11px" },
+  submitBtn: { background: "#378add", border: "none", color: "#fff", padding: "5px 12px", borderRadius: "2px", cursor: "pointer", fontSize: "11px", fontWeight: "600" }
 };

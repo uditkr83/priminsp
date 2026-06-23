@@ -40,6 +40,28 @@ router.get("/workdays/:calendarId", async (req, res) => {
   }
 });
 
+// Dynamic Shift Fetch Route: Get shifts by calendar ID
+router.get("/shifts/:calendarId", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      SELECT *
+      FROM calendar_shifts
+      WHERE calendar_id=$1
+      ORDER BY start_hour
+      `,
+      [req.params.calendarId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
 // Get single calendar
 router.get("/:id", async (req, res) => {
   try {
@@ -88,6 +110,42 @@ router.post("/", async (req, res) => {
 
     res.status(201).json(result.rows[0]);
 
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- PHASE-2: TOGGLE WORKDAY (WORKING / NON-WORKING) ---
+router.put("/workdays/:id", async (req, res) => {
+  try {
+    const { day_of_week } = req.body;
+
+    const exists = await pool.query(
+      `SELECT * FROM calendar_workdays
+       WHERE calendar_id=$1 AND day_of_week=$2`,
+      [req.params.id, day_of_week]
+    );
+
+    if (exists.rows.length > 0) {
+      await pool.query(
+        `DELETE FROM calendar_workdays
+         WHERE calendar_id=$1 AND day_of_week=$2`,
+        [req.params.id, day_of_week]
+      );
+
+      return res.json({ working: false });
+    }
+
+    await pool.query(
+      `INSERT INTO calendar_workdays
+       (calendar_id, day_of_week)
+       VALUES ($1,$2)`,
+      [req.params.id, day_of_week]
+    );
+
+    res.json({ working: true });
+    
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
