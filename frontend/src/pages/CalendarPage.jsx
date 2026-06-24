@@ -91,24 +91,6 @@ export default function CalendarPage() {
         setCalendars([]);
       }
 
-      // 2. Fetch Holidays/Exceptions from Database
-      try {
-        const holidayRes = await API.get("/calendar/exceptions/1");
-        if (holidayRes.data) {
-          setHolidays(
-            holidayRes.data.map(h => ({
-              date: h.exception_date?.split("T")[0],
-              name: h.exception_name,
-              type: h.exception_type,
-              recurring: h.is_recurring
-            }))
-          );
-        }
-      } catch (hErr) {
-        console.error("Holidays fetch failed, using empty array", hErr);
-        setHolidays([]);
-      }
-
     } catch (err) {
       console.error("Calendar master bundle load failed from express backend", err);
     } finally {
@@ -138,6 +120,24 @@ export default function CalendarPage() {
           color: "#378add"
         }))
       );
+
+      // FIXED: Exceptions/Holidays fetch logic moved here where calendarId is fully valid
+      try {
+        const holidayRes = await API.get(`/calendars/exceptions/${calendarId}`);
+        if (holidayRes.data) {
+          setHolidays(
+            holidayRes.data.map(h => ({
+              date: h.exception_date?.split("T")[0],
+              name: h.exception_name,
+              type: h.exception_type,
+              recurring: h.is_recurring
+            }))
+          );
+        }
+      } catch (hErr) {
+        console.error("Holidays context fetch failed for this node", hErr);
+        setHolidays([]);
+      }
 
     } catch (err) {
       console.error("Error fetching dynamic calendar details:", err);
@@ -173,16 +173,33 @@ export default function CalendarPage() {
     }
   };
 
+  // --- PHASE 6: DEEP COPY CALENDAR ENGINE FUNCTION ---
+  const copyCalendar = async () => {
+    if (!activeCalendar.id || activeCalendar.id === "CAL-LOADING") {
+      alert("Please select a valid source calendar node first");
+      return;
+    }
+    try {
+      const res = await API.post(`/calendars/${activeCalendar.id}/copy`);
+      // Reload parent lists and cascade focus to the newly duplicated layout engine block
+      await loadCalendarData();
+      if (res.data?.id) {
+        setSelectedCalId(res.data.id);
+      }
+    } catch (err) {
+      console.error("Copy failed:", err);
+      alert("Copy failed");
+    }
+  };
+
   // --- PHASE 4: WORKDAY TOGGLE EDITOR FUNCTION WITH COMPACT STATE SYNC ---
   const toggleWorkday = async (dayOfWeek) => {
     if (activeCalendar.id === "CAL-LOADING") return;
     try {
-      // बैकएंड पर वर्कडे वर्किंग/नॉन-वर्किंग स्विच करें
       await API.put(`/calendars/workdays/${activeCalendar.id}`, {
         day_of_week: dayOfWeek
       });
       
-      // ऑप्टिमाइज़्ड ग्रिड रेंडर के लिए सिर्फ इस स्पेसिफिक कैलेंडर की स्टेट रिफ्रेश करें
       loadCalendarDetails(activeCalendar.id);
     } catch (err) {
       console.error("Failed to toggle workday", err);
@@ -199,6 +216,7 @@ export default function CalendarPage() {
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDayOffset = getFirstDayOffset(currentYear, currentMonth);
 
+  // --- PHASE 5: EXCEPTION DAY CLICK AND SAVE HANDLERS ---
   const handleDayClick = (dayNum) => {
     const formattedDate = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
     const target = holidays.find(h => h.date === formattedDate);
@@ -209,6 +227,24 @@ export default function CalendarPage() {
       setActiveExceptionForm({ date: formattedDate, name: "New Schedule Exception Override", type: "Holiday", recurring: false });
     }
     setIsExceptionModalOpen(true);
+  };
+
+  const saveException = async () => {
+    try {
+      await API.post("/calendars/exceptions", {
+        calendar_id: activeCalendar.id,
+        exception_date: activeExceptionForm.date,
+        exception_name: activeExceptionForm.name,
+        exception_type: activeExceptionForm.type,
+        is_recurring: activeExceptionForm.recurring
+      });
+
+      setIsExceptionModalOpen(false);
+      loadCalendarDetails(activeCalendar.id);
+    } catch (err) {
+      console.error(err);
+      alert("Exception save failed");
+    }
   };
 
   const calculateStats = () => {
@@ -234,6 +270,74 @@ export default function CalendarPage() {
   const stats = calculateStats();
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+  // Fallback styling object block for structural rendering reference
+  const styles = {
+    container: { padding: "20px", background: "#0b0f19", color: "#fff", minHeight: "100vh", fontFamily: "sans-serif" },
+    topHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #1e2330", paddingBottom: "16px", marginBottom: "16px" },
+    headerTextWrapper: { display: "flex", flexDirection: "column" },
+    headerBadge: { background: "#1e293b", color: "#378add", fontSize: "10px", fontWeight: "700", padding: "4px 8px", borderRadius: "4px" },
+    mainTitle: { fontSize: "22px", margin: "4px 0 2px 0", fontWeight: "700" },
+    subTitle: { fontSize: "12px", color: "#64748b", margin: 0 },
+    viewToggleBtn: { display: "flex", alignItems: "center", gap: "6px", border: "1px solid #2e354f", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" },
+    toolbar: { display: "flex", justifyContent: "space-between", background: "#141822", padding: "8px 12px", borderRadius: "6px", marginBottom: "16px", border: "1px solid #1e2330" },
+    toolbarBtn: { display: "flex", alignItems: "center", gap: "6px", background: "#1e293b", border: "1px solid #2e354f", color: "#fff", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" },
+    divider: { width: "1px", background: "#2e354f", margin: "0 8px" },
+    searchWrapper: { display: "flex", alignItems: "center" },
+    searchInput: { background: "#0b0f19", border: "1px solid #2e354f", color: "#fff", padding: "6px 10px", borderRadius: "4px", fontSize: "12px", width: "220px" },
+    workspaceGrid: { display: "grid", gridTemplateColumns: "280px 1fr 320px", gap: "16px" },
+    panel: { background: "#141822", border: "1px solid #1e2330", borderRadius: "6px", display: "flex", flexDirection: "column" },
+    panelHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #1e2330", background: "#181d2a", fontSize: "11px", fontWeight: "700", color: "#94a3b8" },
+    countBadge: { background: "#1e293b", color: "#94a3b8", padding: "2px 6px", borderRadius: "10px", fontSize: "9px" },
+    panelContent: { padding: "12px", overflowY: "auto" },
+    treeFolderRow: { display: "flex", alignItems: "center", gap: "6px", padding: "4px 0", cursor: "pointer" },
+    treeFolderLabel: { fontSize: "12px", fontWeight: "600", color: "#cbd5e1" },
+    treeItemRow: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 8px", marginLeft: "14px", borderRadius: "4px", cursor: "pointer", fontSize: "12px", color: "#e2e8f0", marginBottom: "2px" },
+    navBtn: { background: "#1e293b", border: "1px solid #2e354f", color: "#fff", cursor: "pointer", borderRadius: "3px", padding: "2px" },
+    calendarGrid: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "6px", borderBottom: "1px solid #1e2330", paddingBottom: "16px" },
+    gridDayHeader: { textAlign: "center", fontSize: "11px", fontWeight: "700", color: "#64748b", paddingBottom: "4px" },
+    gridCellDisabled: { background: "rgba(255,255,255,0.02)", minHeight: "50px", borderRadius: "4px" },
+    gridCellWorking: { background: "#1e293b", border: "1px solid #2e354f", minHeight: "50px", borderRadius: "4px", padding: "6px", display: "flex", flexDirection: "column", justifyContent: "space-between", fontSize: "12px" },
+    gridCellNonWorking: { background: "#090d16", border: "1px solid #141822", minHeight: "50px", borderRadius: "4px", padding: "6px", color: "#475569", display: "flex", flexDirection: "column", fontSize: "12px" },
+    gridCellHoliday: { background: "rgba(249,115,22,0.15)", border: "1px solid #f97316", color: "#f97316", minHeight: "50px", borderRadius: "4px", padding: "6px", display: "flex", flexDirection: "column", justifyContent: "space-between", fontSize: "12px" },
+    gridCellShutdown: { background: "rgba(239,68,68,0.15)", border: "1px solid #ef4444", color: "#ef4444", minHeight: "50px", borderRadius: "4px", padding: "6px", display: "flex", flexDirection: "column", justifyContent: "space-between", fontSize: "12px" },
+    gridCellToday: { boxShadow: "0 0 0 2px #378add" },
+    miniLabelEvent: { fontSize: "8px", background: "rgba(0,0,0,0.2)", padding: "1px 3px", borderRadius: "2px", overflow: "hidden" },
+    yearViewContainerGrid: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", borderBottom: "1px solid #1e2330", paddingBottom: "16px" },
+    miniMonthBox: { background: "#181d2a", border: "1px solid #1e2330", padding: "8px", borderRadius: "4px" },
+    miniMonthTitle: { fontSize: "9px", fontWeight: "700", color: "#64748b", marginBottom: "4px", textAlign: "center" },
+    miniGridContainer: { display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px" },
+    subTableHeader: { fontSize: "10px", fontWeight: "700", color: "#64748b", letterSpacing: "0.5px", marginBottom: "8px" },
+    graphicalTimelineWidgetContainer: { background: "#0b0f19", border: "1px solid #1e2330", borderRadius: "4px", padding: "10px" },
+    timelineTicksContainer: { display: "flex", justifyContent: "space-between", borderBottom: "1px solid #1e2330", paddingBottom: "4px" },
+    tickLabelNode: { fontSize: "8px", color: "#475569", fontFamily: "monospace" },
+    shiftTrackLane: { display: "flex", alignItems: "center", gap: "8px" },
+    shiftLaneLabel: { fontSize: "9px", width: "50px", color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+    laneCoreBackground: { flex: 1, background: "#141822", height: "18px", borderRadius: "3px", position: "relative" },
+    sliderInsideText: { fontSize: "8px", color: "#fff", fontWeight: "700" },
+    inheritanceContainerBox: { background: "#181d2a", border: "1px solid #1e2330", padding: "8px 10px", borderRadius: "4px", fontSize: "11px" },
+    sectionTitle: { fontSize: "10px", fontWeight: "700", color: "#475569", margin: "12px 0 6px 0", letterSpacing: "0.5px" },
+    formGroup: { display: "flex", flexDirection: "column", gap: "4px", marginBottom: "8px" },
+    label: { fontSize: "11px", color: "#94a3b8" },
+    inputReadOnly: { background: "#0b0f19", border: "1px solid #1e2330", padding: "6px 8px", color: "#94a3b8", fontSize: "12px", borderRadius: "4px", width: "100%", boxSizing: "border-box" },
+    metricsGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" },
+    metricCard: { background: "#181d2a", border: "1px solid #1e2330", borderRadius: "4px", padding: "8px", display: "flex", flexDirection: "column" },
+    metricLabel: { fontSize: "9px", color: "#64748b" },
+    metricValue: { fontSize: "14px", fontWeight: "700", color: "#fff", marginTop: "2px" },
+    bottomBar: { display: "flex", alignItems: "center", gap: "16px", background: "#141822", border: "1px solid #1e2330", padding: "8px 16px", borderRadius: "6px", marginTop: "16px", fontSize: "11px" },
+    summaryStatsWrapper: { display: "flex", gap: "24px", flex: 1 },
+    statNode: { fontWeight: "600", color: "#cbd5e1" },
+    modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 },
+    modalContent: { background: "#141822", border: "1px solid #2e354f", borderRadius: "8px", width: "400px", display: "flex", flexDirection: "column", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.5)" },
+    modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #1e2330", background: "#181d2a", fontSize: "12px", fontWeight: "700", color: "#fff" },
+    closeBtn: { background: "transparent", border: "none", color: "#64748b", cursor: "pointer", display: "flex", alignItems: "center" },
+    modalBody: { padding: "16px" },
+    modalInput: { background: "#0b0f19", border: "1px solid #2e354f", color: "#fff", padding: "8px 10px", borderRadius: "4px", fontSize: "12px", width: "100%", boxSizing: "border-box" },
+    modalSelect: { background: "#0b0f19", border: "1px solid #2e354f", color: "#fff", padding: "8px 10px", borderRadius: "4px", fontSize: "12px", width: "100%", boxSizing: "border-box" },
+    modalFooter: { display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 16px", borderTop: "1px solid #1e2330", background: "#181d2a" },
+    cancelBtn: { background: "transparent", border: "1px solid #2e354f", color: "#cbd5e1", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "12px" },
+    submitBtn: { background: "#378add", border: "none", color: "#fff", padding: "6px 12px", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "600" }
+  };
+
   return (
     <div style={styles.container}>
       
@@ -258,7 +362,9 @@ export default function CalendarPage() {
           <button style={styles.toolbarBtn} onClick={() => setShowCreateModal(true)}>
             <MdAdd size={14} /> New Calendar
           </button>
-          <button style={styles.toolbarBtn}><MdContentCopy size={14} /> Copy Calendar</button>
+          <button style={styles.toolbarBtn} onClick={copyCalendar}>
+            <MdContentCopy size={14} /> Copy Calendar
+          </button>
           <div style={styles.divider} />
           <button style={styles.toolbarBtn} onClick={() => handleDayClick(18)}><MdOutlineCelebration size={14} color="#f97316" /> Declare Exception Event</button>
         </div>
@@ -341,7 +447,7 @@ export default function CalendarPage() {
                     <div 
                       key={`day-${dayNum}`} 
                       style={{ ...cellStyle, cursor: "pointer" }} 
-                      onClick={() => toggleWorkday(dayOfWeek)}
+                      onClick={() => handleDayClick(dayNum)}
                     >
                       <span style={{ fontWeight: 700 }}>{dayNum}</span>
                       {matched && <span style={styles.miniLabelEvent}>{matched.name.substring(0,6)}..</span>}
@@ -548,6 +654,79 @@ export default function CalendarPage() {
               <button style={styles.cancelBtn} onClick={() => setShowCreateModal(false)}>Cancel</button>
               <button style={styles.submitBtn} onClick={createCalendar}>Save Calendar Node</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- PHASE 5: CREATE CALENDAR EXCEPTION MODAL UI --- */}
+      {isExceptionModalOpen && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            
+            <div style={styles.modalHeader}>
+              <span>Create Calendar Exception</span>
+              <button style={styles.closeBtn} onClick={() => setIsExceptionModalOpen(false)}><MdClose size={16} /></button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Exception Override Date</label>
+                <input
+                  value={activeExceptionForm.date}
+                  readOnly
+                  style={styles.inputReadOnly}
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Exception Label Name</label>
+                <input
+                  value={activeExceptionForm.name}
+                  onChange={(e) =>
+                    setActiveExceptionForm({
+                      ...activeExceptionForm,
+                      name: e.target.value
+                    })
+                  }
+                  style={styles.modalInput}
+                  placeholder="e.g. Independence Day Event"
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Exception Shift Classification</label>
+                <select
+                  value={activeExceptionForm.type}
+                  onChange={(e) =>
+                    setActiveExceptionForm({
+                      ...activeExceptionForm,
+                      type: e.target.value
+                    })
+                  }
+                  style={styles.modalSelect}
+                >
+                  <option value="Holiday">Holiday</option>
+                  <option value="Shutdown">Shutdown</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                style={styles.cancelBtn}
+                onClick={() => setIsExceptionModalOpen(false)}
+              >
+                Cancel
+              </button>
+
+              <button
+                style={styles.submitBtn}
+                onClick={saveException}
+              >
+                Save Exception
+              </button>
+            </div>
+
           </div>
         </div>
       )}
