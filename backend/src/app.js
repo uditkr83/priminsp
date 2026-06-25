@@ -12,6 +12,10 @@ const ganttHierarchyRoutes =
 require("./routes/ganttHierarchy");
 const calendarRoutes = require("./routes/calendarRoutes");
 const calendarDetailsRoutes = require("./routes/calendarDetailsRoutes");
+const resourceRoutes = require("./routes/resources");
+const resourceAssignmentRoutes = require("./routes/resourceAssignments");
+
+
 
 const app = express();
 
@@ -26,6 +30,8 @@ app.use("/cpm", cpmRoutes);
 app.use("/api/gantt-hierarchy",ganttHierarchyRoutes);
 app.use("/calendars", calendarRoutes);
 app.use("/calendar", calendarDetailsRoutes);
+app.use("/resources", resourceRoutes);
+app.use("/resource-assignments", resourceAssignmentRoutes);
 app.get("/", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");

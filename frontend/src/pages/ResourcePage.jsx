@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import axios from "axios";
 import {
   MdOutlineFolder,
   MdOutlineFolderOpen,
@@ -19,36 +20,80 @@ const COLOR_RULES = {
   Material: { text: "#10b981", bg: "rgba(16, 185, 129, 0.12)", border: "#047857" }
 };
 
-const INITIAL_RESOURCES = [
-  { id: "R1001", name: "Civil Engineer", type: "Labor", maxUnits: 8, basePrice: 500, code: "RC-ENG-01", location: "Site-A", discipline: "Structural", dept: "Engineering" },
-  { id: "R1002", name: "Site Supervisor", type: "Labor", maxUnits: 8, basePrice: 350, code: "RC-SUP-02", location: "Site-A", discipline: "Execution", dept: "Construction" },
-  { id: "R2001", name: "Excavator CAT-320", type: "Equipment", maxUnits: 8, basePrice: 1500, code: "RC-EQP-11", location: "Fleet-Yard", discipline: "Excavation", dept: "Fleet" },
-  { id: "R3001", name: "OPC Cement Bulk", type: "Material", maxUnits: 1000, basePrice: 420, code: "RC-MAT-99", location: "Store-1", discipline: "Civil Supply", dept: "Procurement" }
-];
-
-const INITIAL_ASSIGNMENTS = [
-  { id: "AS-01", actId: "ACT-101", actName: "Substructure Excavation Phase 1", resId: "R2001", resName: "Excavator CAT-320", resType: "Equipment", budgeted: 8, remaining: 2, actual: 6, cost: 12000, weekData: [8, 8, 4, 0] },
-  { id: "AS-02", actId: "ACT-102", actName: "Foundation Concrete Pouring", resId: "R1001", resName: "Civil Engineer", resType: "Labor", budgeted: 12, remaining: 4, actual: 8, cost: 6000, weekData: [12, 12, 8, 4] },
-  { id: "AS-03", actId: "ACT-102", actName: "Foundation Concrete Pouring", resId: "R1002", resName: "Site Supervisor", resType: "Labor", budgeted: 8, remaining: 0, actual: 8, cost: 2800, weekData: [8, 8, 8, 8] },
-  { id: "AS-04", actId: "ACT-105", actName: "Superstructure Column Rebar Alignment", resId: "R1001", resName: "Civil Engineer", resType: "Labor", budgeted: 4, remaining: 4, actual: 0, cost: 2000, weekData: [4, 4, 4, 4] },
-  { id: "AS-05", actId: "ACT-110", actName: "Material Procurement Node", resId: "R3001", resName: "OPC Cement Bulk", resType: "Material", budgeted: 500, remaining: 100, actual: 400, cost: 210000, weekData: [200, 200, 100, 0] }
-];
-
 export default function ResourcePage() {
-  const [resources] = useState(INITIAL_RESOURCES);
-  const [assignments, setAssignments] = useState(INITIAL_ASSIGNMENTS);
-  const [selectedResId, setSelectedResId] = useState("R1001");
-  const [selectedAsgId, setSelectedAsgId] = useState("AS-02");
+  const [resources, setResources] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [selectedResId, setSelectedResId] = useState("");
+  const [selectedAsgId, setSelectedAsgId] = useState("");
   const [currentTab, setCurrentTab] = useState("General");
   const [searchQuery, setSearchQuery] = useState("");
   const [treeExpanded, setTreeExpanded] = useState({ Labor: true, Equipment: true, Material: true });
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [assignForm, setAssignForm] = useState({ actId: "ACT-205", actName: "Structural Grid Verification", resId: "R1001", budgeted: 8 });
+  const [assignForm, setAssignForm] = useState({ actId: "ACT-205", actName: "Structural Grid Verification", resId: "", budgeted: 8 });
 
-  const activeResource = resources.find(r => r.id === selectedResId) || resources[0];
-  const activeAssignment = assignments.find(a => a.id === selectedAsgId) || assignments[0];
+  // DB Sync Trigger
+  useEffect(() => {
+    fetchResources();
+    fetchAssignments();
+  }, []);
 
-  // Helper calculation for dynamic status tracking
+  const fetchResources = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/resources");
+      const formatted = res.data.map(r => ({
+        id: r.id.toString(),
+        name: r.resource_name,
+        type: r.resource_type,
+        maxUnits: Number(r.max_units),
+        basePrice: Number(r.unit_rate),
+        code: r.resource_code,
+        location: "",
+        discipline: "",
+        dept: ""
+      }));
+
+      setResources(formatted);
+
+      if (formatted.length > 0) {
+        setSelectedResId(prev => prev || formatted[0].id);
+      }
+    } catch (err) {
+      console.error("Resource pipeline down:", err);
+    }
+  };
+
+  const fetchAssignments = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/resource-assignments");
+      const formatted = res.data.map(a => ({
+        id: a.id.toString(),
+        actId: a.activity_code,
+        actName: a.activity_name,
+        resId: a.resource_id.toString(),
+        resName: a.resource_name,
+        resType: a.resource_type,
+        budgeted: Number(a.budgeted_units),
+        remaining: Number(a.remaining_units),
+        actual: Number(a.actual_units),
+        cost: Number(a.budgeted_units) * 120, 
+        weekData: [Number(a.budgeted_units), Number(a.budgeted_units) * 0.8, 0, 0] 
+      }));
+
+      setAssignments(formatted);
+
+      if (formatted.length > 0) {
+        setSelectedAsgId(prev => prev || formatted[0].id);
+      }
+    } catch (err) {
+      console.error("Assignment pipeline down:", err);
+    }
+  };
+
+  // Safe Data Selectors
+  const activeResource = resources.find(r => r.id === selectedResId) || resources[0] || null;
+  const activeAssignment = assignments.find(a => a.id === selectedAsgId) || assignments[0] || null;
+
+  // Independent Loading Engine
   const getResourceLoading = (resId, maxCapacity) => {
     const resAsgs = assignments.filter(a => a.resId === resId);
     if (resAsgs.length === 0) return { totalLoad: 0, loadingPercentage: 0, isOver: false, count: 0 };
@@ -59,15 +104,19 @@ export default function ResourcePage() {
     });
     const peakAllocated = Math.max(...weeklyTotals);
     const loadingPercentage = Math.round((peakAllocated / maxCapacity) * 100);
+    
+    const resource = resources.find(r => r.id === resId);
     return { 
       totalLoad: peakAllocated, 
       loadingPercentage, 
-      isOver: activeResource?.type === "Labor" ? loadingPercentage > 100 : false,
+      isOver: resource?.type === "Labor" ? loadingPercentage > 100 : false,
       count: resAsgs.length
     };
   };
 
-  const activeResLoading = getResourceLoading(activeResource.id, activeResource.maxUnits);
+  const activeResLoading = activeResource
+    ? getResourceLoading(activeResource.id, activeResource.maxUnits)
+    : { totalLoad: 0, loadingPercentage: 0, isOver: false, count: 0 };
 
   const filteredAssignments = assignments.filter(asg => 
     asg.actId.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -75,25 +124,47 @@ export default function ResourcePage() {
     asg.resName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleCreateAssignment = () => {
+  // REAL INTEGRATION FIX: Sends data to PostgreSQL and updates state using the database-generated ID
+  const handleCreateAssignment = async () => {
     const targetRes = resources.find(r => r.id === assignForm.resId);
     if (!targetRes) return;
-    const newAsg = {
-      id: `AS-${Math.floor(100 + Math.random() * 900)}`,
-      actId: assignForm.actId,
-      actName: assignForm.actName,
-      resId: targetRes.id,
-      resName: targetRes.name,
-      resType: targetRes.type,
-      budgeted: Number(assignForm.budgeted),
-      remaining: Number(assignForm.budgeted),
-      actual: 0,
-      cost: Number(assignForm.budgeted) * targetRes.basePrice,
-      weekData: [Number(assignForm.budgeted), Number(assignForm.budgeted), 0, 0]
+
+    const payload = {
+      activity_code: assignForm.actId,
+      activity_name: assignForm.actName,
+      resource_id: parseInt(targetRes.id, 10),
+      resource_name: targetRes.name,
+      resource_type: targetRes.type,
+      budgeted_units: Number(assignForm.budgeted),
+      remaining_units: Number(assignForm.budgeted),
+      actual_units: 0
     };
-    setAssignments([...assignments, newAsg]);
-    setSelectedAsgId(newAsg.id);
-    setIsAssignModalOpen(false);
+
+    try {
+      const response = await axios.post("http://localhost:5000/resource-assignments", payload);
+      
+      // Map returned DB row to UI state schema
+      const dbData = response.data;
+      const newAsg = {
+        id: (dbData.id || `AS-${Math.floor(100 + Math.random() * 900)}`).toString(),
+        actId: dbData.activity_code || payload.activity_code,
+        actName: dbData.activity_name || payload.activity_name,
+        resId: (dbData.resource_id || payload.resource_id).toString(),
+        resName: dbData.resource_name || payload.resource_name,
+        resType: dbData.resource_type || payload.resource_type,
+        budgeted: Number(dbData.budgeted_units || payload.budgeted_units),
+        remaining: Number(dbData.remaining_units || payload.remaining_units),
+        actual: Number(dbData.actual_units || payload.actual_units),
+        cost: Number(dbData.budgeted_units || payload.budgeted_units) * targetRes.basePrice,
+        weekData: [Number(dbData.budgeted_units || payload.budgeted_units), Number(dbData.budgeted_units || payload.budgeted_units) * 0.8, 0, 0]
+      };
+
+      setAssignments(prevAssignments => [...prevAssignments, newAsg]);
+      setSelectedAsgId(newAsg.id);
+      setIsAssignModalOpen(false);
+    } catch (err) {
+      console.error("Failed to commit assignment row to DB:", err);
+    }
   };
 
   return (
@@ -138,8 +209,6 @@ export default function ResourcePage() {
                         </div>
                         <div style={{ display: "flex", flexDirection: "column" }}>
                           <span style={{ fontWeight: 500, color: "#e2e8f0" }}>{res.name}</span>
-                          
-                          {/* 1. Dynamic Live Status Badge Integration */}
                           <span style={{ fontSize: "9px", marginTop: "2px", fontWeight: "700", color: loadingInfo.isOver ? "#ef4444" : "#10b981" }}>
                             {loadingInfo.isOver ? "● OVERALLOCATED" : "● NORMAL"}
                           </span>
@@ -193,26 +262,16 @@ export default function ResourcePage() {
 
           {/* Timephased Profile Chart */}
           <div style={{ flex: 1.8, background: "#0f1117", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ background: "#141822", padding: "6px 12px", borderBottom: "1px solid #1e2330", display: "flex", alignItems: "center", justifyBetween: "space-between" }}>
+            <div style={{ background: "#141822", padding: "6px 12px", borderBottom: "1px solid #1e2330", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "4px" }}><MdBarChart /> Resource Usage Profile</span>
               <span style={{ color: "#378add", fontSize: "10px", fontWeight: "600" }}>Focus Context: {activeResource?.name}</span>
             </div>
             
             <div style={{ flex: 1, padding: "20px 24px 10px 24px", display: "flex", gap: "28px", alignItems: "flex-end", background: "#0d1018", position: "relative" }}>
               
-              {/* 2. Dynamic Threshold Capacity Line Overlay */}
               {activeResource?.type === "Labor" && (
-                <div style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  // Formula scales line according to max Units vs mock max height layout (20h)
-                  bottom: `${(activeResource.maxUnits / 20) * 100}%`,
-                  borderTop: "2px dashed #f59e0b",
-                  zIndex: 5,
-                  pointerEvents: "none"
-                }}>
-                  <span style={{ position: "absolute", right: "12px", top: "-14px", background: "#f59e0b", color: "#000", padding: "1px 5px", borderRadius: "2px", fontSize: "8px", fontWeight: "8px", fontWeight: "bold" }}>
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: `${(activeResource.maxUnits / 20) * 100}%`, borderTop: "2px dashed #f59e0b", zIndex: 5, pointerEvents: "none" }}>
+                  <span style={{ position: "absolute", right: "12px", top: "-14px", background: "#f59e0b", color: "#000", padding: "1px 5px", borderRadius: "2px", fontSize: "8px", fontWeight: "bold" }}>
                     LIMIT THRESHOLD ({activeResource.maxUnits}h/d)
                   </span>
                 </div>
@@ -224,18 +283,12 @@ export default function ResourcePage() {
                 return (
                   <div key={week} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", zIndex: 2 }}>
                     <div style={{ width: "100%", height: "70px", background: "#111520", position: "relative", border: "1px solid #1e2330", borderRadius: "2px 2px 0 0" }}>
-                      
-                      {/* Bar fill element change status colors natively */}
                       <div style={{ 
-                        position: "absolute", 
-                        bottom: 0, 
-                        left: 0, 
-                        right: 0, 
+                        position: "absolute", bottom: 0, left: 0, right: 0, 
                         height: `${Math.min(100, (weeklyLoad / 20) * 100)}%`, 
                         background: isOverLimit ? "#ef4444" : COLOR_RULES[activeResource?.type]?.text || "#378add",
                         transition: "height 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
                       }} />
-                      
                       <span style={{ position: "absolute", top: "-15px", left: "50%", transform: "translateX(-50%)", fontSize: "9px", color: isOverLimit ? "#ef4444" : "#cbd5e1", fontWeight: 700 }}>
                         {weeklyLoad}h/d
                       </span>
@@ -251,7 +304,6 @@ export default function ResourcePage() {
         {/* Right Details Config Dock panel */}
         <div style={{ background: "#0f1117", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           
-          {/* 3. Premium Summary Dashboard Card Module */}
           <div style={{ padding: "12px" }}>
             <div style={{ background: "linear-gradient(135deg, #141a29 0%, #0e121d 100%)", border: `1px solid ${activeResLoading.isOver ? "rgba(239, 68, 68, 0.25)" : "#1e2433"}`, borderRadius: "6px", padding: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
