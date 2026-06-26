@@ -22,15 +22,22 @@ router.post("/calculate/:project_id", async (req, res) => {
     const projectStartDate = new Date(projectResult.rows[0].start_date);
 
     // Fetch the default calendar or project-linked calendar exceptions
-    const calResult = await pool.query(
-      `SELECT working_days, (SELECT json_agg(exception_date) FROM calendar_exceptions WHERE calendar_id = c.id AND is_working = false) as holidays
-       FROM calendars c WHERE project_id = $1 OR is_default = true ORDER BY project_id NULLS LAST LIMIT 1`,
-      [project_id]
-    );
+    // Temporary default calendar
+const workingDays = new Set([1, 2, 3, 4, 5]);
 
+const holidayResult = await pool.query(`
+  SELECT exception_date
+  FROM calendar_exceptions
+`);
+
+const holidays = new Set(
+  holidayResult.rows.map(
+    r => new Date(r.exception_date)
+      .toISOString()
+      .split("T")[0]
+  )
+);
     // Default configuration fallback if no calendar table entries exist yet
-    const workingDays = new Set(calResult.rows[0]?.working_days || [1, 2, 3, 4, 5]);
-    const holidays = new Set((calResult.rows[0]?.holidays || []).map(d => new Date(d).toISOString().split('T')[0]));
 
     // --- CALENDAR ENGINE MATH CORE RE-ENGINEERING ---
     const addDays = (date, days) => {
@@ -321,10 +328,12 @@ router.post("/calculate/:project_id", async (req, res) => {
     res.status(200).json(finalSyncResult.rows);
 
   } catch (error) {
-    await pool.query("ROLLBACK").catch(() => {});
-    console.error("PlanMaster Advanced CPM Engine Failure Mode:", error);
-    res.status(500).json({ error: "Internal scheduling network compute breakdown." });
-  }
+  console.error("PlanMaster CPM Engine Error:", error);
+
+  res.status(500).json({
+    error: error.message
+  });
+}
 });
 
 module.exports = router;

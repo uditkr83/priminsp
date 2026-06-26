@@ -75,8 +75,6 @@ export default function PrimaveraEngineDashboard() {
   const [hierarchyData, setHierarchyData] = useState([]);
   const [zoomLevel, setZoomLevel] = useState("day"); 
   const [expanded, setExpanded] = useState({}); 
-  
-  // 3. FIX: Multi-State Criticality Filter ('ALL', 'CRITICAL', 'NEAR_CRITICAL')
   const [criticalFilterMode, setCriticalFilterMode] = useState("ALL");
   
   // DOM Sync Refs
@@ -94,7 +92,6 @@ export default function PrimaveraEngineDashboard() {
     loadData();
   }, []);
 
-  // 4. FIX: High-Performance Cross-Pane Bidirectional Scroll Sync Engine
   const handleScrollSync = useCallback((source, target) => {
     return () => {
       if (isScrollingRef.current && isScrollingRef.current !== source) return;
@@ -102,7 +99,6 @@ export default function PrimaveraEngineDashboard() {
       if (target.current && source.current) {
         target.current.scrollTop = source.current.scrollTop;
       }
-      // Reset locker state asynchronously
       clearTimeout(window.scrollSyncTimeout);
       window.scrollSyncTimeout = setTimeout(() => { isScrollingRef.current = null; }, 50);
     };
@@ -194,7 +190,6 @@ export default function PrimaveraEngineDashboard() {
         </div>
         
         <div style={{ display: "flex", gap: "10px" }}>
-          {/* 3. FIX: Cycle Filters UI Button */}
           <div style={{ display: "flex", background: "#090b11", border: "1px solid #1e2330", borderRadius: "4px", padding: "2px" }}>
             {["ALL", "CRITICAL", "NEAR_CRITICAL"].map(mode => (
               <button 
@@ -276,7 +271,6 @@ export default function PrimaveraEngineDashboard() {
             
             {/* VECTOR GRAPHICS DEPENDENCY MAP GRAPH LAYER */}
             <svg style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 50 }}>
-              {/* 1. FIX: Integrated Hardware Marker Matrix Definitions for Dynamic Pathing Arrowheads */}
               <defs>
                 <marker id="arrow-standard" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L8,5 L0,9 z" fill="#3b82f6"/></marker>
                 <marker id="arrow-critical" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,1 L8,5 L0,9 z" fill="#E24B4A"/></marker>
@@ -299,7 +293,7 @@ export default function PrimaveraEngineDashboard() {
                   const sStart = ((new Date(targetRow.early_start) - projectStart) / 86400000) * DAY_WIDTH;
                   const sFinish = ((new Date(targetRow.early_finish) - projectStart) / 86400000) * DAY_WIDTH;
 
-                  const pY = i * 34 + 13; // Middle tracking line
+                  const pY = i * 34 + 13; 
                   const sY = targetIdx * 34 + 13;
 
                   let fromX = pFinish; let toX = sStart;
@@ -314,7 +308,6 @@ export default function PrimaveraEngineDashboard() {
                   const midX = fromX + (toX - fromX) / 2;
                   const pathD = `M ${fromX} ${pY} L ${midX} ${pY} L ${midX} ${sY} L ${toX} ${sY}`;
 
-                  // 5. FIX: Micro-Text Annotation Injection Directly Onto Spatial Paths
                   const textX = midX + 4;
                   const textY = pY + (sY - pY) * 0.25 + 3;
                   const labelString = `${relType}${lag >= 0 ? "+" : ""}${lag}`;
@@ -353,9 +346,14 @@ export default function PrimaveraEngineDashboard() {
               const width = (row.duration || 1) * DAY_WIDTH;
               const floatWidth = (row.total_float || 0) * DAY_WIDTH;
 
-              // 2. FIX: Multi-Tier Spatial Baseline Matrix Mapping Calculations
+              // Baseline Matrix Mapping Calculations
               const baselineOffset = ((new Date(row.baseline_start) - projectStart) / 86400000) * DAY_WIDTH;
               const baselineWidth = (row.baseline_duration || 1) * DAY_WIDTH;
+
+              // Step Calculations for Dynamic Slippage Overlays
+              const baselineFinish = baselineOffset + baselineWidth;
+              const currentFinish = startOffset + width;
+              const delayWidth = Math.max(0, currentFinish - baselineFinish);
 
               return (
                 <div key={i} style={{ height: "34px", borderBottom: "1px solid #1e2330", position: "relative", boxSizing: "border-box" }}>
@@ -364,7 +362,7 @@ export default function PrimaveraEngineDashboard() {
                     <div style={{ position: "absolute", left: startOffset + width, width: floatWidth, height: "2px", top: "11px", borderBottom: "2px dotted #fbbf24", opacity: 0.6 }} />
                   )}
                   
-                  {/* 2. FIX: Primary Early Schedule Bar Layer */}
+                  {/* 1. Primary Early Schedule Bar Layer (Top Tier) */}
                   <div style={{ 
                     position: "absolute", left: startOffset, width: width, height: "10px", top: "6px", 
                     background: row.percent_complete === 100 ? "#1D9E75" : row.is_critical ? "#E24B4A" : row.total_float <= 5 ? "#ef4444" : "#3b82f6",
@@ -373,11 +371,28 @@ export default function PrimaveraEngineDashboard() {
                     <div style={{ width: `${row.percent_complete}%`, height: "100%", background: "rgba(0,0,0,0.3)" }} />
                   </div>
 
-                  {/* 2. FIX: Secondary Static Target Baseline Shadow Bar Layer Below */}
+                  {/* 2. Secondary Target Baseline Shadow Bar Layer (Clean Primavera Gray Style - Bottom Tier) */}
                   <div style={{
                     position: "absolute", left: baselineOffset, width: baselineWidth, height: "4px", top: "19px",
-                    background: "#475569", opacity: 0.45, borderRadius: "1px", zIndex: 5
+                    background: "#cbd5e1", opacity: 0.85, borderRadius: "1px", zIndex: 5
                   }} />
+
+                  {/* 3. High-Contrast Delay Slippage Overlay Strip (Vibrant Orange & Thick) */}
+                  {delayWidth > 0 && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: baselineFinish,
+                        width: delayWidth,
+                        height: "6px",
+                        top: "22px",
+                        background: "#ff9900", // High contrast neon orange against red critical bars
+                        borderRadius: "2px",
+                        zIndex: 6,
+                        boxShadow: "0 0 4px rgba(255, 153, 0, 0.4)"
+                      }}
+                    />
+                  )}
                 </div>
               );
             })}

@@ -24,6 +24,11 @@ SELECT
     s.total_float,
     s.is_critical,
 
+    ab.baseline_start,
+    ab.baseline_finish,
+    ab.baseline_duration,
+    ab.baseline_name,
+
     a.percent_complete,
     a.status
 
@@ -33,6 +38,9 @@ ON w.id = a.wbs_id
 
 LEFT JOIN schedules s
 ON a.id = s.activity_id
+
+LEFT JOIN activity_baselines ab
+ON a.id = ab.activity_id
 
 ORDER BY w.sort_order, a.id;
 `);

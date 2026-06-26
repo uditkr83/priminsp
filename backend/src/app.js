@@ -14,6 +14,7 @@ const calendarRoutes = require("./routes/calendarRoutes");
 const calendarDetailsRoutes = require("./routes/calendarDetailsRoutes");
 const resourceRoutes = require("./routes/resources");
 const resourceAssignmentRoutes = require("./routes/resourceAssignments");
+const baselineRoutes = require("./routes/baselines");
 
 
 
@@ -32,6 +33,7 @@ app.use("/calendars", calendarRoutes);
 app.use("/calendar", calendarDetailsRoutes);
 app.use("/resources", resourceRoutes);
 app.use("/resource-assignments", resourceAssignmentRoutes);
+app.use("/baselines", baselineRoutes);
 app.get("/", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");

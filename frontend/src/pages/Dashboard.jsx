@@ -26,7 +26,15 @@ export default function Dashboard() {
   const [wbsCount, setWbsCount] = useState(0);
   const [relationshipCount, setRelationshipCount] = useState(0);
   
-  // Centralized Schedule Data State (The ultimate source of truth now)
+  // Step 1: Baseline Stats Engine State Initialization
+  const [baselineStats, setBaselineStats] = useState({
+    delayed_activities: 0,
+    on_schedule: 0,
+    largest_delay: 0,
+    average_delay: 0
+  });
+  
+  // Centralized Schedule Data State
   const [scheduleData, setScheduleData] = useState([]);
 
   useEffect(() => {
@@ -35,53 +43,45 @@ export default function Dashboard() {
 
   const loadDashboard = async () => {
     try {
-      // Fetching all dynamic counters along with your exact /schedule route
+      // Step 2: API Request Synchronization via Promise.all
       const [
         projectsRes, 
         wbsRes, 
         relationshipsRes,
-        scheduleRes // <-- Fetches from your pool.query route
+        scheduleRes,
+        baselineRes // <-- Hit your new Express baseline stats optimizer
       ] = await Promise.all([
         API.get("/projects"),
         API.get("/wbs"),
         API.get("/relationships"),
-        API.get("/schedules") // <-- Hit your new Express schedule router
+        API.get("/schedules"),
+        API.get("/baselines/stats") // <-- Appends baseline metrics pipeline
       ]);
 
       setProjectCount(projectsRes.data ? projectsRes.data.length : 0);
       setWbsCount(wbsRes.data ? wbsRes.data.length : 0);
       setRelationshipCount(relationshipsRes.data ? relationshipsRes.data.length : 0);
-      
-      // Setting your real CPM schedule data
       setScheduleData(scheduleRes.data || []);
+      
+      // Setting real aggregate analytics dataset safely
+      if (baselineRes.data) {
+        setBaselineStats(baselineRes.data);
+      }
     } catch (err) {
       console.error("Dashboard calculation engine synchronization failed:", err);
     }
   };
 
-  // --- Your Exact Prompt Mathematical Formulas ---
-  
-  // 1. Total Duration Formula
+  // --- Analytical Computations ---
   const totalDuration = Math.max(...scheduleData.map(x => x.early_finish), 0);
-
-  // 2. Critical Activities Count Formula
   const criticalCount = scheduleData.filter(x => x.is_critical).length;
-
-  // 3. Project Start Day Formula
-  const projectStart =
-  scheduleData.length
-    ? Math.min(...scheduleData.map(x => x.early_start))
-    : 0;
-  // 4. Project Finish Day Formula
+  const projectStart = scheduleData.length ? Math.min(...scheduleData.map(x => x.early_start)) : 0;
   const projectFinish = Math.max(...scheduleData.map(x => x.early_finish), 0);
-
-  // 5. Recent Activities Table Dynamic Slicing
   const recentActivities = scheduleData.slice(0, 5);
 
-  // Progress Bar Helper (Math: Sum of progress based on Critical Paths vs Standard for visualization)
   const processedActivities = scheduleData.map(x => ({
     ...x,
-    progress: x.is_critical ? 40 : 100 // Temporarily tracking dynamic distribution
+    progress: x.is_critical ? 40 : 100 
   }));
   
   const overallCompletion = scheduleData.length > 0 
@@ -123,8 +123,31 @@ export default function Dashboard() {
         })}
       </div>
 
-      {/* Primavera P6 Style Timeline Meta Strip (Using your formula variables) */}
-      <div style={{ background: "#111524", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px 24px", display: "flex", alignItems: "center", justifycontent: "space-between", marginBottom: "28px", gap: "20px" }}>
+      {/* Step 3: Baseline Statistics Matrix Cards Panel */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "20px" }}>
+        <div style={{ background: "#0f1117", border: "1px solid #1e2330", borderRadius: "10px", padding: "20px" }}>
+          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 500, marginBottom: "6px" }}>Delayed Activities</div>
+          <div style={{ fontSize: "28px", color: "#ef4444", fontWeight: "600" }}>{baselineStats.delayed_activities}</div>
+        </div>
+
+        <div style={{ background: "#0f1117", border: "1px solid #1e2330", borderRadius: "10px", padding: "20px" }}>
+          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 500, marginBottom: "6px" }}>Largest Delay</div>
+          <div style={{ fontSize: "28px", color: "#f97316", fontWeight: "600" }}>{baselineStats.largest_delay} Days</div>
+        </div>
+
+        <div style={{ background: "#0f1117", border: "1px solid #1e2330", borderRadius: "10px", padding: "20px" }}>
+          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 500, marginBottom: "6px" }}>Average Delay</div>
+          <div style={{ fontSize: "28px", color: "#eab308", fontWeight: "600" }}>{baselineStats.average_delay} Days</div>
+        </div>
+
+        <div style={{ background: "#0f1117", border: "1px solid #1e2330", borderRadius: "10px", padding: "20px" }}>
+          <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 500, marginBottom: "6px" }}>On Schedule</div>
+          <div style={{ fontSize: "28px", color: "#22c55e", fontWeight: "600" }}>{baselineStats.on_schedule}</div>
+        </div>
+      </div>
+
+      {/* Primavera P6 Style Timeline Meta Strip */}
+      <div style={{ background: "#111524", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "28px", gap: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#94a3b8" }}>
           <MdDateRange style={{ color: "#378ADD", fontSize: "16px" }} />
           <span>Project Start: <strong style={{ color: "#f1f5f9" }}>Day {projectStart}</strong></span>
@@ -144,7 +167,7 @@ export default function Dashboard() {
       {/* Bottom Layout Row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "16px" }}>
         
-        {/* Recent Activities Table (Using slice(0,5) on your schedule data) */}
+        {/* Recent Activities Table */}
         <div style={{ background: "#0f1117", border: "1px solid #1e2330", borderRadius: "10px", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2330" }}>
             <span style={{ fontSize: "13px", fontWeight: 500, color: "#e2e8f0" }}>Recent Activities</span>
