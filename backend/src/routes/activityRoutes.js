@@ -2,8 +2,14 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
 
+// Primavera Standard Valid Types configuration
+const VALID_ACTIVITY_TYPES = [
+  "Task",
+  "Start Milestone",
+  "Finish Milestone"
+];
+
 // 📊 1. GET ACTIVITIES DASHBOARD METRICS (GET /stats)
-// ⚠️ ध्यान दें: इस राउट को /:id वाले राउट्स से ऊपर रखना जरूरी है, ताकि एक्सप्रेस इसे ID न समझ ले।
 router.get("/stats", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -29,13 +35,24 @@ router.post("/", async (req, res) => {
       wbs_id,
       activity_code,
       activity_name,
+      activity_type,
       duration,
       start_date,
       finish_date,
-      percent_complete
+      percent_complete,
+      constraint_type,
+      constraint_date
     } = req.body;
 
-    const currentDuration = parseInt(duration, 10) || 0;
+    // Validation Guard: Restricting Activity Types
+    if (activity_type && !VALID_ACTIVITY_TYPES.includes(activity_type)) {
+      return res.status(400).json({
+        error: `Invalid activity type. Allowed values are: ${VALID_ACTIVITY_TYPES.join(", ")}`
+      });
+    }
+
+    // ⭐ Milestone Logic: Automatically force duration to 0 if activity is not a standard Task
+    const currentDuration = activity_type === "Task" ? (parseInt(duration, 10) || 0) : 0;
     
     // 🛡️ Data Guard: Restricting percent_complete between strict 0 and 100 boundaries
     const currentPercent = Math.min(100, Math.max(0, parseFloat(percent_complete) || 0));
@@ -57,25 +74,31 @@ router.post("/", async (req, res) => {
         wbs_id,
         activity_code,
         activity_name,
+        activity_type,
         duration,
         start_date,
         finish_date,
         status,
         percent_complete,
-        remaining_duration
+        remaining_duration,
+        constraint_type,
+        constraint_date
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING *`,
       [
         wbs_id,
         activity_code,
         activity_name,
+        activity_type || "Task",
         currentDuration,
         start_date || null,
         finish_date || null,
         derivedStatus,
         currentPercent,
-        remaining_duration
+        remaining_duration,
+        constraint_type || null,
+        constraint_date || null
       ]
     );
 
@@ -109,16 +132,27 @@ router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      wbs_id, // 👈 wbs_id डिस्ट्रक्चरिंग में शामिल किया ताकि एक्टिविटी मूव हो सके
+      wbs_id,
       activity_code,
       activity_name,
+      activity_type,
       duration,
       start_date,
       finish_date,
-      percent_complete
+      percent_complete,
+      constraint_type,
+      constraint_date
     } = req.body;
 
-    const currentDuration = parseInt(duration, 10) || 0;
+    // Validation Guard: Restricting Activity Types
+    if (activity_type && !VALID_ACTIVITY_TYPES.includes(activity_type)) {
+      return res.status(400).json({
+        error: `Invalid activity type. Allowed values are: ${VALID_ACTIVITY_TYPES.join(", ")}`
+      });
+    }
+
+    // ⭐ Milestone Logic: Automatically force duration to 0 if activity is not a standard Task
+    const currentDuration = activity_type === "Task" ? (parseInt(duration, 10) || 0) : 0;
     
     // 🛡️ Data Guard: Restricting percent_complete between strict 0 and 100 boundaries
     const currentPercent = Math.min(100, Math.max(0, parseFloat(percent_complete) || 0));
@@ -136,27 +170,34 @@ router.put("/:id", async (req, res) => {
 
     const result = await pool.query(
       `UPDATE activities
-       SET wbs_id = $1,
-           activity_code = $2,
-           activity_name = $3,
-           duration = $4,
-           start_date = $5,
-           finish_date = $6,
-           status = $7,
-           percent_complete = $8,
-           remaining_duration = $9
-       WHERE id = $10
+       SET
+        wbs_id = $1,
+        activity_code = $2,
+        activity_name = $3,
+        activity_type = $4,
+        duration = $5,
+        start_date = $6,
+        finish_date = $7,
+        status = $8,
+        percent_complete = $9,
+        remaining_duration = $10,
+        constraint_type = $11,
+        constraint_date = $12
+       WHERE id = $13
        RETURNING *`,
       [
-        wbs_id, // 👈 SQL अपडेट स्टेटमेंट में wbs_id को मैप किया
+        wbs_id,
         activity_code,
         activity_name,
+        activity_type || "Task",
         currentDuration,
         start_date || null,
         finish_date || null,
         derivedStatus,
         currentPercent,
         remaining_duration,
+        constraint_type || null,
+        constraint_date || null,
         id
       ]
     );

@@ -28,6 +28,66 @@ router.get("/", async (req, res) => {
   }
 });
 
+
+// =========================================================================
+// RESOURCE HISTOGRAM
+// =========================================================================
+router.get("/histogram", async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+
+        r.id,
+        r.resource_code,
+        r.resource_name,
+        r.resource_type,
+        r.max_units,
+
+        COUNT(ra.id) AS assignments,
+
+        COALESCE(
+          SUM(ra.budgeted_units),
+          0
+        ) AS total_budgeted,
+
+        COALESCE(
+          SUM(ra.actual_units),
+          0
+        ) AS total_actual,
+
+        COALESCE(
+          SUM(ra.remaining_units),
+          0
+        ) AS total_remaining
+
+      FROM resources r
+
+      LEFT JOIN resource_assignments ra
+      ON r.id = ra.resource_id
+
+      GROUP BY
+        r.id,
+        r.resource_code,
+        r.resource_name,
+        r.resource_type,
+        r.max_units
+
+      ORDER BY
+        r.resource_name;
+    `);
+
+    res.json(result.rows);
+
+  } catch (err) {
+
+    res.status(500).json({
+      error: err.message
+    });
+
+  }
+});
+
 // =========================================================================
 // 2. CREATE ASSIGNMENT (With Strict Primavera-style Validations)
 // =========================================================================

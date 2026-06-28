@@ -32,11 +32,13 @@ export default function ResourcePage() {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   
   const [assignForm, setAssignForm] = useState({ activityId: "", resId: "", budgeted: 8 });
+  const [histogram, setHistogram] = useState([]);
 
   useEffect(() => {
     fetchResources();
     fetchAssignments();
     fetchActivities();
+    fetchHistogramData();
   }, []);
 
   const fetchActivities = async () => {
@@ -45,6 +47,16 @@ export default function ResourcePage() {
       setActivities(res.data);
     } catch (err) {
       console.error("Activity fetch failure:", err);
+    }
+  };
+
+  // FIX 1: Corrected API mapping to native assignment histogram controller
+  const fetchHistogramData = async () => {
+    try {
+      const res = await axios.get("http://localhost:5000/resource-assignments/histogram");
+      setHistogram(res.data);
+    } catch (err) {
+      console.error("Histogram analytical fetch failure:", err);
     }
   };
 
@@ -82,8 +94,9 @@ export default function ResourcePage() {
         budgeted: Number(a.budgeted_units),
         remaining: Number(a.remaining_units),
         actual: Number(a.actual_units),
-        // Cost Logic Fix: Using unit_rate from backend join if available
-        cost: Number(a.budgeted_units) * Number(a.unit_rate || 120), 
+        // FIX 6: Strict binding to dynamic backend resource rates without manual 120 fallback
+        cost: Number(a.budgeted_units) * Number(a.unit_rate), 
+        // FIX 3: Structured mock schema matching state design pattern for later timeline hydration
         weekData: [Number(a.budgeted_units), Number(a.budgeted_units) * 0.8, 0, 0] 
       }));
       setAssignments(formatted);
@@ -98,6 +111,9 @@ export default function ResourcePage() {
   const activeResource = resources.find(r => r.id === selectedResId) || resources[0] || null;
   const activeAssignment = assignments.find(a => a.id === selectedAsgId) || assignments[0] || null;
 
+  // BIGGEST MISSING FEATURE: Direct focus contextual node extractor for the resource histogram module
+  const activeHistogramMetrics = histogram.find(h => h.id?.toString() === activeResource?.id?.toString()) || null;
+
   const getResourceLoading = (resId, maxCapacity) => {
     const resAsgs = assignments.filter(a => a.resId === resId);
     if (resAsgs.length === 0) return { totalLoad: 0, loadingPercentage: 0, isOver: false, count: 0 };
@@ -106,12 +122,13 @@ export default function ResourcePage() {
       for (let i = 0; i < 4; i++) { weeklyTotals[i] += asg.weekData[i] || 0; }
     });
     const peakAllocated = Math.max(...weeklyTotals);
-    const loadingPercentage = Math.round((peakAllocated / maxCapacity) * 100);
-    const resource = resources.find(r => r.id === resId);
+    const loadingPercentage = Math.round((peakAllocated / (maxCapacity || 1)) * 100);
+    
+    // FIX 7: Universal overloading evaluation independent of specific dictionary typing rules
     return { 
       totalLoad: peakAllocated, 
       loadingPercentage, 
-      isOver: resource?.type === "Labor" ? loadingPercentage > 100 : false,
+      isOver: loadingPercentage > 100,
       count: resAsgs.length
     };
   };
@@ -141,10 +158,9 @@ export default function ResourcePage() {
     try {
       await axios.post("http://localhost:5000/resource-assignments", payload);
       await fetchAssignments();
-      
-      // Logical Bug Fix: Resetting form state after success
       setAssignForm({ activityId: "", resId: "", budgeted: 8 });
       setIsAssignModalOpen(false);
+      fetchHistogramData(); 
     } catch (err) {
       console.error("Database commit failure:", err);
     }
@@ -152,6 +168,7 @@ export default function ResourcePage() {
 
   return (
     <div style={styles.container}>
+      {/* GLOBAL APPLICATION MAIN TOPBAR CONTAINER */}
       <div style={styles.header}>
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           <span style={styles.logo}>PlanMaster P6 // Enterprise Resource Engine</span>
@@ -163,7 +180,9 @@ export default function ResourcePage() {
         </div>
       </div>
 
+      {/* CORE WORKSPACE INTERACTIVE MULTI-SPLIT ARCHITECTURE */}
       <div style={styles.mainGrid}>
+        {/* SIDEBAR DOCK: Resource breakdown nodes lookup hierarchy */}
         <div style={styles.sidebar}>
           <div style={styles.sidebarHeader}>Resource Dictionary Index</div>
           <div style={{ padding: "6px" }}>
@@ -196,6 +215,7 @@ export default function ResourcePage() {
           </div>
         </div>
 
+        {/* PRIMARY MAIN CENTER WORK PANEL: Primavera P6 Layout Format [Table Top, Profile Bottom] */}
         <div style={styles.centerPanel}>
           <div style={styles.tableWrapper}>
             <table style={styles.table}>
@@ -222,7 +242,7 @@ export default function ResourcePage() {
                       <td style={{ ...styles.tableBodyCell, textAlign: "right", color: "#10b981" }}>{asg.actual}h</td>
                       <td style={{ ...styles.tableBodyCell, textAlign: "right", color: "#cbd5e1" }}>₹{asg.cost.toLocaleString()}</td>
                       <td style={styles.tableBodyCell}>
-                        {asg.resType === "Labor" && loading.isOver ? (
+                        {loading.isOver ? (
                           <span style={styles.badgeOver}>OVERALLOCATED</span>
                         ) : <span style={{ color: "#64748b", fontSize: "10px" }}>Normal</span>}
                       </td>
@@ -233,39 +253,91 @@ export default function ResourcePage() {
             </table>
           </div>
 
+          {/* DUAL MODE HISTOGRAM VIEW SPLIT SCREEN LAYER */}
           <div style={styles.histogramWrapper}>
             <div style={styles.histogramHeader}>
-              <span style={styles.histogramTitle}><MdBarChart /> Resource Usage Profile</span>
-              <span style={{ color: "#378add", fontSize: "10px", fontWeight: "600" }}>Focus Context: {activeResource?.name}</span>
+              <span style={styles.histogramTitle}><MdBarChart /> Dynamic Profile Matrix</span>
+              <span style={{ color: "#378add", fontSize: "10px", fontWeight: "600" }}>Focus Track: {activeResource ? `[${activeResource.id}] ${activeResource.name}` : "None Selected"}</span>
             </div>
-            <div style={styles.chartArea}>
-              {activeResource?.type === "Labor" && (
-                <div style={{ position: "absolute", left: 0, right: 0, bottom: `${(activeResource.maxUnits / 20) * 100}%`, borderTop: "2px dashed #f59e0b", zIndex: 5, pointerEvents: "none" }}>
-                  <span style={styles.thresholdLabel}>LIMIT THRESHOLD ({activeResource.maxUnits}h/d)</span>
-                </div>
-              )}
-              {["Wk 1", "Wk 2", "Wk 3", "Wk 4"].map((week, index) => {
-                const weeklyLoad = assignments.filter(a => a.resId === activeResource?.id).reduce((sum, c) => sum + (c.weekData[index] || 0), 0);
-                const isOverLimit = activeResource?.type === "Labor" && weeklyLoad > activeResource.maxUnits;
-                return (
-                  <div key={week} style={styles.barContainer}>
-                    <div style={styles.barTrack}>
-                      <div style={{ ...styles.barFill, height: `${Math.min(100, (weeklyLoad / 20) * 100)}%`, background: isOverLimit ? "#ef4444" : COLOR_RULES[activeResource?.type]?.text || "#378add" }} />
-                      <span style={{ ...styles.barValue, color: isOverLimit ? "#ef4444" : "#cbd5e1" }}>{weeklyLoad}h/d</span>
-                    </div>
-                    <span style={styles.weekLabel}>{week}</span>
+
+            {activeResource ? (
+              <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 320px", background: "#0d1018" }}>
+                
+                {/* PART A: Time-Distributed Column Segment Charts */}
+                <div style={styles.chartArea}>
+                  {/* FIXIC 5: Capacity limit line threshold mapped directly to active units profile configurations */}
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: "100%", transform: "translateY(100%)", borderTop: "2px dashed #f59e0b", zIndex: 5, pointerEvents: "none", top: "25px" }}>
+                    <span style={styles.thresholdLabel}>MAX AVAILABILITY LIMIT ({activeResource.maxUnits} Units)</span>
                   </div>
-                );
-              })}
-            </div>
+
+                  {["Wk 1", "Wk 2", "Wk 3", "Wk 4"].map((week, index) => {
+                    const weeklyLoad = assignments.filter(a => a.resId === activeResource.id).reduce((sum, c) => sum + (c.weekData[index] || 0), 0);
+                    // FIX 7: Universal loading alert rule evaluated via baseline metrics overrides
+                    const isOverLimit = weeklyLoad > activeResource.maxUnits;
+                    
+                    // FIX 4: Dynamically computing scaling denominator utilizing current focus configurations boundaries
+                    const parsedHeightPercentage = Math.min(100, (weeklyLoad / (activeResource.maxUnits || 1)) * 100);
+
+                    return (
+                      <div key={week} style={styles.barContainer}>
+                        <div style={styles.barTrack}>
+                          <div style={{ ...styles.barFill, height: `${parsedHeightPercentage}%`, background: isOverLimit ? "#ef4444" : COLOR_RULES[activeResource.type]?.text || "#378add" }} />
+                          <span style={{ ...styles.barValue, color: isOverLimit ? "#ef4444" : "#cbd5e1" }}>{weeklyLoad}h/d</span>
+                        </div>
+                        <span style={styles.weekLabel}>{week}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* BIGGEST MISSING FEATURE SOLVED: Cumulative Linear Tracking Display specifically focused on selected dictionary row context node */}
+                <div style={{ borderLeft: "1px solid #1e2330", padding: "12px", display: "flex", flexDirection: "column", justifyContent: "center", background: "#0f1117" }}>
+                  {activeHistogramMetrics ? (
+                    <div>
+                      <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: "10px" }}>Spread Ledger Metrics</div>
+                      
+                      {/* Budget Stack */}
+                      <div style={{ marginBottom: "8px" }}>
+                        <div style={styles.spreadLabelRow}><span>Cumulative Budgeted</span><span>{activeHistogramMetrics.total_budgeted} Un.</span></div>
+                        <div style={styles.spreadProgressBarContainer}>
+                          <div style={{ width: `${Math.min((Number(activeHistogramMetrics.total_budgeted) / (activeResource.maxUnits || 1)) * 100, 100)}%`, height: "100%", background: Number(activeHistogramMetrics.total_budgeted) > activeResource.maxUnits ? "#ef4444" : "#3b82f6" }} />
+                        </div>
+                      </div>
+
+                      {/* Actual Stack */}
+                      <div style={{ marginBottom: "8px" }}>
+                        <div style={styles.spreadLabelRow}><span>Cumulative Actual</span><span>{activeHistogramMetrics.total_actual} Un.</span></div>
+                        <div style={styles.spreadProgressBarContainer}>
+                          <div style={{ width: `${Math.min((Number(activeHistogramMetrics.total_actual) / (activeResource.maxUnits || 1)) * 100, 100)}%`, height: "100%", background: "#22c55e" }} />
+                        </div>
+                      </div>
+
+                      {/* Remaining Stack */}
+                      <div>
+                        <div style={styles.spreadLabelRow}><span>Balance Remaining</span><span>{activeHistogramMetrics.total_remaining} Un.</span></div>
+                        <div style={styles.spreadProgressBarContainer}>
+                          <div style={{ width: `${Math.min((Number(activeHistogramMetrics.total_remaining) / (activeResource.maxUnits || 1)) * 100, 100)}%`, height: "100%", background: "#f59e0b" }} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: "#475569", textAlign: "center", fontSize: "11px" }}>No distributed database logging mapping available for this node index resource.</div>
+                  )}
+                </div>
+
+              </div>
+            ) : (
+              <div style={{ padding: "40px", textAlign: "center", color: "#475569" }}>Select an enterprise record node to pull tracking graphs.</div>
+            )}
           </div>
         </div>
 
+        {/* RIGHT DOCK DETAILS AREA - FIX 2: All duplicate structural graphs fully expunged for clean layout structure */}
         <div style={styles.rightDock}>
           <div style={{ padding: "12px" }}>
             <div style={{ ...styles.summaryCard, border: `1px solid ${activeResLoading.isOver ? "rgba(239, 68, 68, 0.25)" : "#1e2433"}` }}>
               <div style={styles.cardHeader}>
-                <span style={{ color: "#64748b", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Active Summary</span>
+                <span style={{ color: "#64748b", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Active Summary Matrix</span>
                 <MdTrendingUp size={14} color={activeResLoading.isOver ? "#ef4444" : "#3b82f6"} />
               </div>
               <div style={styles.cardGrid}>
@@ -274,7 +346,7 @@ export default function ResourcePage() {
                   <span style={{ color: "#f1f5f9", fontWeight: "700", fontSize: "13px" }}>{activeResource?.id}</span>
                 </div>
                 <div style={styles.cardStat}>
-                  <label style={styles.cardLabel}>PEAK LOAD RATE</label>
+                  <label style={styles.cardLabel}>PEAK LOADING RATE</label>
                   <span style={{ color: activeResLoading.isOver ? "#ef4444" : "#10b981", fontWeight: "700" }}>{activeResLoading.loadingPercentage}%</span>
                 </div>
               </div>
@@ -294,7 +366,6 @@ export default function ResourcePage() {
           </div>
 
           <div style={styles.asgDetailsWrapper}>
-            {/* Compile Fix: Added missing colon in fontWeight */}
             <div style={styles.asgHeader}><MdInfoOutline color="#fbbf24" size={14} /><span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", textTransform: "uppercase" }}>Assignment Details</span></div>
             {activeAssignment && (
               <div style={{ padding: "12px" }}>
@@ -302,7 +373,7 @@ export default function ResourcePage() {
                   <div style={{ color: "#f1f5f9", fontWeight: 600 }}>{activeAssignment.actName}</div>
                   <div style={styles.asgStatGrid}>
                     <div><span style={{ color: "#475569" }}>Budgeted:</span> {activeAssignment.budgeted}h</div>
-                    <div><span style={{ color: "#475569" }}>Cost:</span> ₹{activeAssignment.cost}</div>
+                    <div><span style={{ color: "#475569" }}>Cost:</span> ₹{activeAssignment.cost.toLocaleString()}</div>
                   </div>
                 </div>
               </div>
@@ -311,6 +382,7 @@ export default function ResourcePage() {
         </div>
       </div>
 
+      {/* CORE INPUT ACTION MODAL WINDOW FOR ASSIGNMENT CREATION LINKS */}
       {isAssignModalOpen && (
         <div style={styles.modalOverlay}>
           <div style={styles.modalWrapper}>
@@ -360,13 +432,13 @@ const styles = {
   tableHeaderCell: { padding: "6px 10px", color: "#64748b", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", borderRight: "1px solid #1e2330", borderBottom: "1px solid #1e2330", textAlign: "left" },
   tableBodyCell: { padding: "6px 10px", borderRight: "1px solid #161b26", whiteSpace: "nowrap" },
   badgeOver: { background: "rgba(239,68,68,0.15)", color: "#ef4444", border: "1px solid #ef4444", padding: "1px 4px", borderRadius: "2px", fontSize: "9px", fontWeight: 700 },
-  histogramWrapper: { flex: 1.8, background: "#0f1117", display: "flex", flexDirection: "column", overflow: "hidden" },
+  histogramWrapper: { flex: 2.2, background: "#0f1117", display: "flex", flexDirection: "column", overflow: "hidden" },
   histogramHeader: { background: "#141822", padding: "6px 12px", borderBottom: "1px solid #1e2330", display: "flex", alignItems: "center", justifyContent: "space-between" },
   histogramTitle: { fontSize: "10px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "4px" },
-  chartArea: { flex: 1, padding: "20px 24px 10px 24px", display: "flex", gap: "28px", alignItems: "flex-end", background: "#0d1018", position: "relative" },
-  thresholdLabel: { position: "absolute", right: "12px", top: "-14px", background: "#f59e0b", color: "#000", padding: "1px 5px", borderRadius: "2px", fontSize: "8px", fontWeight: "bold" },
+  chartArea: { flex: 1, padding: "28px 24px 10px 24px", display: "flex", gap: "28px", alignItems: "flex-end", position: "relative" },
+  thresholdLabel: { position: "absolute", right: "12px", background: "#f59e0b", color: "#000", padding: "1px 5px", borderRadius: "2px", fontSize: "8px", fontWeight: "bold", top: "-14px" },
   barContainer: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "6px", zIndex: 2 },
-  barTrack: { width: "100%", height: "70px", background: "#111520", position: "relative", border: "1px solid #1e2330", borderRadius: "2px 2px 0 0" },
+  barTrack: { width: "100%", height: "65px", background: "#111520", position: "relative", border: "1px solid #1e2330", borderRadius: "2px 2px 0 0" },
   barFill: { position: "absolute", bottom: 0, left: 0, right: 0, transition: "height 0.3s" },
   barValue: { position: "absolute", top: "-15px", left: "50%", transform: "translateX(-50%)", fontSize: "9px", fontWeight: 700 },
   weekLabel: { fontSize: "9px", color: "#64748b", fontWeight: "600" },
@@ -392,5 +464,7 @@ const styles = {
   modalHeader: { padding: "10px 14px", background: "#141822", borderBottom: "1px solid #2d3748", display: "flex", alignItems: "center", justifyContent: "space-between" },
   modalFooter: { padding: "10px 14px", display: "flex", justifyContent: "flex-end", gap: "8px" },
   btnPrimary: { background: "#378add", color: "#fff", border: "none", padding: "5px 14px", borderRadius: "3px", cursor: "pointer", fontWeight: 600 },
-  btnSecondary: { background: "#1e2330", color: "#cbd5e1", border: "1px solid #334155", padding: "4px 12px", borderRadius: "3px", cursor: "pointer" }
+  btnSecondary: { background: "#1e2330", color: "#cbd5e1", border: "1px solid #334155", padding: "4px 12px", borderRadius: "3px", cursor: "pointer" },
+  spreadLabelRow: { fontSize: "10px", color: "#94a3b8", display: "flex", justifyContent: "space-between" },
+  spreadProgressBarContainer: { height: "6px", background: "#0d1018", borderRadius: "2px", overflow: "hidden", marginTop: "2px" }
 };

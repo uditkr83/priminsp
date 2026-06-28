@@ -2,6 +2,11 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
 
+// VALID CONSTRAINT TYPES FOR BACKEND VALIDATION
+const VALID_CONSTRAINTS = new Set([
+  "ASAP", "ALAP", "SNET", "SNLT", "FNET", "FNLT", "MSO", "MFO"
+]);
+
 /**
  * POST /api/cpm/calculate/:project_id
  * Executes multi-calendar, multi-relationship CPM scheduling for an isolated project.
@@ -18,28 +23,23 @@ router.post("/calculate/:project_id", async (req, res) => {
     if (projectResult.rows.length === 0) {
       return res.status(404).json({ error: "Project not found." });
     }
+    
     // Anchor everything to the structural Project Start Date
     const projectStartDate = new Date(projectResult.rows[0].start_date);
 
-    // Fetch the default calendar or project-linked calendar exceptions
-    // Temporary default calendar
-const workingDays = new Set([1, 2, 3, 4, 5]);
+    // Fetch calendar exceptions
+    const workingDays = new Set([1, 2, 3, 4, 5]);
+    const holidayResult = await pool.query(`
+      SELECT exception_date FROM calendar_exceptions
+    `);
 
-const holidayResult = await pool.query(`
-  SELECT exception_date
-  FROM calendar_exceptions
-`);
+    const holidays = new Set(
+      holidayResult.rows.map(
+        r => new Date(r.exception_date).toISOString().split("T")[0]
+      )
+    );
 
-const holidays = new Set(
-  holidayResult.rows.map(
-    r => new Date(r.exception_date)
-      .toISOString()
-      .split("T")[0]
-  )
-);
-    // Default configuration fallback if no calendar table entries exist yet
-
-    // --- CALENDAR ENGINE MATH CORE RE-ENGINEERING ---
+    // --- CALENDAR ENGINE MATH CORE ---
     const addDays = (date, days) => {
       let d = new Date(date);
       let count = 0;
@@ -86,9 +86,12 @@ const holidays = new Set(
 
     // 2. ISOLATED MULTI-PROJECT DATA INGESTION
     const activitiesResult = await pool.query(
-      "SELECT id, activity_code, activity_name, duration FROM activities WHERE wbs_id IN (SELECT id FROM wbs WHERE project_id = $1)",
+      `SELECT id, activity_code, activity_name, duration, constraint_type, constraint_date 
+       FROM activities 
+       WHERE wbs_id IN (SELECT id FROM wbs WHERE project_id = $1)`,
       [project_id]
     );
+    
     const relationshipsResult = await pool.query(
       `SELECT r.predecessor_activity_id, r.successor_activity_id, r.relationship_type, r.lag 
        FROM relationships r
@@ -102,23 +105,31 @@ const holidays = new Set(
 
     if (activities.length === 0) return res.status(200).json([]);
 
-    // Initialize structured tracking objects using structural day integers relative to baseline 0
     const nodes = {};
     const adjList = {};
     const revAdjList = {};
 
-    activities.forEach((act) => {
+    // IMPROVEMENT 3: Ingestion ke waqt hi strict Backend Validation Layer execute karna
+    for (const act of activities) {
+      if (act.constraint_type && !VALID_CONSTRAINTS.has(act.constraint_type.toUpperCase())) {
+        return res.status(400).json({ 
+          error: `Invalid constraint type '${act.constraint_type}' detected on activity code ${act.activity_code}.` 
+        });
+      }
+
       nodes[act.id] = {
         id: act.id,
         code: act.activity_code,
         name: act.activity_name,
         duration: parseInt(act.duration, 10),
+        constraint_type: act.constraint_type ? act.constraint_type.toUpperCase() : null,
+        constraint_date: act.constraint_date,
         es: 0, ef: 0, ls: 0, lf: 0, 
         total_float: 0, free_float: Infinity, is_critical: false
       };
       adjList[act.id] = [];
       revAdjList[act.id] = [];
-    });
+    }
 
     relationships.forEach((rel) => {
       const pred = rel.predecessor_activity_id;
@@ -153,39 +164,36 @@ const holidays = new Set(
       return res.status(400).json({ error: "Loop detected in network schedule! Dependency loop aborted." });
     }
 
-    // 4. ADVANCED FORWARD PASS (Complex P6 Multi-Relationship Dependency Matrix)
+    // 4. ADVANCED FORWARD PASS (Primavera P6 Multi-Relationship Dependency Matrix)
     topoOrder.forEach((id) => {
       const node = nodes[id];
       const preds = revAdjList[id];
 
       if (preds.length === 0) {
-        node.es = 0; // Starts immediately on day zero offset
+        node.es = 0; // Baseline zero offset
       } else {
         let maxEs = 0;
         preds.forEach((edge) => {
           const predNode = nodes[edge.predId];
           let potentialEs = 0;
 
-          // Process Primavera-Standard Logic Types explicitly
           switch (edge.type) {
-            case "SS": // Start to Start: Succ ES = Pred ES + Lag
-              potentialEs = predNode.es + edge.lag;
-              break;
-            case "FF": // Finish to Finish: Succ EF = Pred EF + Lag -> Succ ES = Succ EF - Succ Dur
-              potentialEs = (predNode.ef + edge.lag) - node.duration + 1;
-              break;
-            case "SF": // Start to Finish: Succ EF = Pred ES + Lag -> Succ ES = Succ EF - Succ Dur
-              potentialEs = (predNode.es + edge.lag) - node.duration + 1;
-              break;
+            case "SS": potentialEs = predNode.es + edge.lag; break;
+            case "FF": potentialEs = (predNode.ef + edge.lag) - node.duration + 1; break;
+            case "SF": potentialEs = (predNode.es + edge.lag) - node.duration + 1; break;
             case "FS":
-            default: // Finish to Start: Succ ES = Pred EF + Lag
-              potentialEs = predNode.ef + edge.lag;
-              break;
+            default: potentialEs = predNode.ef + edge.lag; break;
           }
           if (potentialEs > maxEs) maxEs = potentialEs;
         });
         node.es = maxEs;
       }
+
+      // IMPROVEMENT 4: Clean Architecture Separation for Forward Constraints
+      if (node.constraint_type && node.constraint_date) {
+        applyForwardConstraints(node, projectStartDate, getCalendarNetworkSpan);
+      }
+
       node.ef = node.es + node.duration - 1;
     });
 
@@ -196,7 +204,7 @@ const holidays = new Set(
     });
 
     // 5. ADVANCED BACKWARD PASS & DRIVING RELATIONSHIP LOOKUPS
-    const drivingRelationships = []; // Tracks structural driving paths
+    const drivingRelationships = [];
 
     for (let i = topoOrder.length - 1; i >= 0; i--) {
       const id = topoOrder[i];
@@ -214,19 +222,11 @@ const holidays = new Set(
           let potentialLf = Infinity;
 
           switch (edge.type) {
-            case "SS": // Pred LF = Succ LS - Lag + Pred Dur - 1
-              potentialLf = (succNode.ls - edge.lag) + node.duration - 1;
-              break;
-            case "FF": // Pred LF = Succ LF - Lag
-              potentialLf = succNode.lf - edge.lag;
-              break;
-            case "SF": // Pred LF = Succ LF - Lag + Pred Dur - 1
-              potentialLf = (succNode.lf - edge.lag) + node.duration - 1;
-              break;
+            case "SS": potentialLf = (succNode.ls - edge.lag) + node.duration - 1; break;
+            case "FF": potentialLf = succNode.lf - edge.lag; break;
+            case "SF": potentialLf = (succNode.lf - edge.lag) + node.duration - 1; break;
             case "FS":
-            default: // Pred LF = Succ LS - Lag
-              potentialLf = succNode.ls - edge.lag;
-              break;
+            default: potentialLf = succNode.ls - edge.lag; break;
           }
           if (potentialLf < minLf) {
             minLf = potentialLf;
@@ -235,7 +235,6 @@ const holidays = new Set(
         });
         node.lf = minLf;
 
-        // Log P6 Driving Relationship logic metadata
         if (structuralDriverEdge) {
           drivingRelationships.push({
             predecessor_id: id,
@@ -244,13 +243,19 @@ const holidays = new Set(
           });
         }
       }
+
+      // IMPROVEMENT 4 (Future-proofing): Yahan backward pass constraints execute honge
+      if (node.constraint_type && node.constraint_date) {
+        applyBackwardConstraints(node, projectStartDate, getCalendarNetworkSpan);
+      }
+
       node.ls = node.lf - node.duration + 1;
 
       // 6. DUAL-FLOAT METRIC EVALUATIONS
       node.total_float = node.ls - node.es;
-      node.is_critical = node.total_float <= 0;
+      node.is_critical = node.total_float <= 0; 
 
-      // Calculate Free Float: Min of (Succ Early Bounds - Current Late Bounds)
+      // Calculate Free Float
       if (succs.length === 0) {
         node.free_float = projectFinishOffset - node.ef;
       } else {
@@ -291,7 +296,6 @@ const holidays = new Set(
     for (const id of topoOrder) {
       const n = nodes[id];
       
-      // Calculate work-calendar adjusted dates relative to project anchor timestamp
       const realEarlyStart = addDays(projectStartDate, n.es);
       const realEarlyFinish = addDays(projectStartDate, n.ef);
       const realLateStart = addDays(projectStartDate, n.ls);
@@ -303,7 +307,6 @@ const holidays = new Set(
       ]);
     }
 
-    // Optional: Write back driving relationship parameters if your join table supports columns
     if (drivingRelationships.length > 0) {
       const updateDrivingQuery = `
         UPDATE relationships 
@@ -319,7 +322,9 @@ const holidays = new Set(
 
     // 8. RESPONSE DELIVERY
     const finalSyncResult = await pool.query(`
-      SELECT s.*, a.activity_code, a.activity_name, a.duration 
+      SELECT
+        a.id, a.activity_code, a.activity_name, a.duration, a.constraint_type, a.constraint_date,
+        s.early_start, s.early_finish, s.late_start, s.late_finish, s.total_float, s.free_float, s.is_critical
       FROM schedules s
       JOIN activities a ON s.activity_id = a.id
       WHERE a.wbs_id IN (SELECT id FROM wbs WHERE project_id = $1)
@@ -328,12 +333,55 @@ const holidays = new Set(
     res.status(200).json(finalSyncResult.rows);
 
   } catch (error) {
-  console.error("PlanMaster CPM Engine Error:", error);
-
-  res.status(500).json({
-    error: error.message
-  });
-}
+    await pool.query("ROLLBACK").catch(() => {});
+    console.error("PlanMaster CPM Engine Error:", error);
+    res.status(500).json({ error: error.message });
+  }
 });
+
+/**
+ * IMPROVEMENT 4: Process Forward Pass Constraints (Affects Early Start/Finish)
+ */
+function applyForwardConstraints(node, projectStartDate, getCalendarNetworkSpan) {
+  const constraintDate = new Date(node.constraint_date);
+  
+  // IMPROVEMENT 2: Guard applied to prevent negative indexes if constraint date is prior to project start
+  const constraintDay = Math.max(0, getCalendarNetworkSpan(projectStartDate, constraintDate));
+
+  switch (node.constraint_type) {
+    case "SNET": // Start On or After
+      if (constraintDay > node.es) {
+        node.es = constraintDay;
+      }
+      break;
+
+    case "MSO": // IMPROVEMENT 1: Hard overwrite for Must Start On logic
+      node.es = constraintDay;
+      break;
+    
+    default:
+      // Other constraints like ASAP, FNET can be parsed here if mapped to forward passes
+      break;
+  }
+}
+
+/**
+ * IMPROVEMENT 4: Process Backward Pass Constraints (Affects Late Start/Finish & Float calculations)
+ */
+function applyBackwardConstraints(node, projectStartDate, getCalendarNetworkSpan) {
+  const constraintDate = new Date(node.constraint_date);
+  const constraintDay = Math.max(0, getCalendarNetworkSpan(projectStartDate, constraintDate));
+
+  switch (node.constraint_type) {
+    case "FNLT": // Finish On or Before
+      // Future calculation mapping: node.lf = Math.min(node.lf, constraintDay)
+      break;
+    case "ALAP": // As Late As Possible
+      // Future calculation mapping: Forces Early Dates to match Late Dates
+      break;
+    default:
+      break;
+  }
+}
 
 module.exports = router;
