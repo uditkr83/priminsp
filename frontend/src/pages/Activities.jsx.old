@@ -1,0 +1,106 @@
+import React, { useState, useMemo } from "react";
+import API from "../api"; 
+import ActivityToolbar from "../features/activities/components/ActivityToolbar";
+import ActivitySpreadsheet from "../features/activities/components/ActivitySpreadsheet";
+import Splitter from "../features/activities/components/Splitter";
+import ActivityDetails from "../features/activities/components/ActivityDetails";
+import ActivityModal from "../features/activities/components/ActivityModal";
+
+import { useSplitter } from "../features/activities/hooks/useSplitter";
+import { useActivityData } from "../features/activities/hooks/useActivityData";
+import { generateGroupHeaders } from "../features/activities/config/groupHeaders";
+
+export default function Activities() {
+  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterMode, setFilterMode] = useState("ALL");
+  const [activeTab, setActiveTab] = useState("General");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [lastTaskDuration, setLastTaskDuration] = useState("5");
+
+  const [form, setForm] = useState({
+    wbs_id: "", activity_code: "", activity_name: "", activity_type: "Task", duration: "5",
+    status: "Not Started", percent_complete: "0", start_date: "", finish_date: "",
+    constraint_type: "", constraint_date: ""
+  });
+
+  const { gridWidthPercent, workspaceRef, initiateResize, isResizingRef } = useSplitter(68);
+  const { activities, loadDashboardData } = useActivityData(selectedActivity, setSelectedActivity);
+
+  const openEditModal = (activity, e) => {
+    e.stopPropagation();
+    setIsEditMode(true);
+    setEditingId(activity.id);
+    if (activity.activity_type === "Task" || !activity.activity_type) {
+      setLastTaskDuration(String(activity.duration ?? "5"));
+    }
+    setForm({
+      wbs_id: activity.wbs_id || "", activity_code: activity.activity_code || "", activity_name: activity.activity_name || "",
+      activity_type: activity.activity_type || "Task", duration: String(activity.duration ?? "5"), status: activity.status || "Not Started",
+      percent_complete: activity.percent_complete || "0", start_date: activity.start_date ? activity.start_date.split("T")[0] : "",
+      finish_date: activity.finish_date ? activity.finish_date.split("T")[0] : "", constraint_type: activity.constraint_type || "",
+      constraint_date: activity.constraint_date ? activity.constraint_date.split("T")[0] : ""
+    });
+    setIsModalOpen(true);
+  };
+
+  const deleteActivity = async (id, e) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to permanently delete this task logic node?")) return;
+    try {
+      await API.delete(`/activities/${id}`);
+      if (selectedActivity?.id === id) setSelectedActivity(null);
+      loadDashboardData();
+    } catch (err) {
+      alert(err.response?.data?.error || "Error executing delete lifecycle.");
+    }
+  };
+
+  const handleSaveActivity = async (e) => {
+    e.preventDefault();
+    if (["SNET", "SNLT", "FNET", "FNLT", "MSO", "MFO"].includes(form.constraint_type) && !form.constraint_date) {
+      alert(`Validation Error: Constraint '${form.constraint_type}' requires a hard Constraint Date.`);
+      return;
+    }
+    try {
+      if (isEditMode) await API.put(`/activities/${editingId}`, form);
+      else await API.post("/activities", form);
+      setIsModalOpen(false);
+      setIsEditMode(false);
+      loadDashboardData();
+    } catch (err) {
+      alert(err.response?.data?.error || "Error compiling database payload.");
+    }
+  };
+
+  const filteredActivities = activities.filter((act) => {
+    const matchesSearch = act.activity_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      act.activity_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      act.wbs_code?.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+    if (filterMode === "CONSTRAINED") return act.constraint_type && act.constraint_type !== "ASAP";
+    if (filterMode === "CRITICAL") return act.is_critical && (act.percent_complete || 0) < 100;
+    return true;
+  });
+
+  return (
+    <div style={{ background: "#090b11", minHeight: "100vh", padding: "16px 24px", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: "#e2e8f0", boxSizing: "border-box", overflow: "hidden" }}>
+      <ActivityToolbar filterMode={filterMode} setFilterMode={setFilterMode} searchTerm={searchTerm} setSearchTerm={setSearchTerm} onAddClick={() => { setForm({ wbs_id: "", activity_code: "", activity_name: "", activity_type: "Task", duration: "5", status: "Not Started", percent_complete: "0", start_date: "", finish_date: "", constraint_type: "", constraint_date: "" }); setLastTaskDuration("5"); setIsEditMode(false); setIsModalOpen(true); }} />
+      
+      <div ref={workspaceRef} style={{ display: "flex", flexDirection: "row", width: "100%", height: "calc(100vh - 120px)", overflow: "hidden", position: "relative" }}>
+        <div style={{ width: selectedActivity ? `${gridWidthPercent}%` : "100%", minWidth: "20%", background: "#0f1117", border: "1px solid #1e2330", display: "flex", flexDirection: "column", overflow: "hidden", height: "100%", boxSizing: "border-box" }}>
+          <div style={{ padding: "8px 16px", background: "#090b11", borderBottom: "1px solid #1e2330", fontSize: "10px", fontWeight: 700, color: "#475569", textTransform: "uppercase", flexShrink: 0 }}>Spreadsheet Grid ({filteredActivities.length} Records Mapped)</div>
+          <ActivitySpreadsheet columns={columns} filteredActivities={filteredActivities} selectedActivity={selectedActivity} onSelectRow={setSelectedActivity} onEditRow={openEditModal} onDeleteRow={deleteActivity} />
+          
+        </div>
+
+        {selectedActivity && <Splitter onMouseDown={initiateResize} isResizingRef={isResizingRef} />}
+        {selectedActivity && <ActivityDetails selectedActivity={selectedActivity} activeTab={activeTab} setActiveTab={setActiveTab} onEditClick={openEditModal} widthPercent={gridWidthPercent} />}
+      </div>
+
+      {isModalOpen && <ActivityModal isEditMode={isEditMode} form={form} setForm={setForm} lastTaskDuration={lastTaskDuration} setLastTaskDuration={setLastTaskDuration} onClose={() => setIsModalOpen(false)} onSave={handleSaveActivity} />}
+    </div>
+  );
+}
